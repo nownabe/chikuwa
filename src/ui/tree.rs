@@ -41,6 +41,17 @@ pub enum TreeItem {
 }
 
 impl TreeItem {
+    /// Whether the cursor can land on this item.
+    pub fn is_selectable(&self) -> bool {
+        match self {
+            TreeItem::Session { .. } => false,
+            TreeItem::Window {
+                has_multiple_panes, ..
+            } => !*has_multiple_panes,
+            TreeItem::Pane { .. } => true,
+        }
+    }
+
     /// Build a target string for tmux switch-client.
     pub fn tmux_target(&self) -> String {
         match self {

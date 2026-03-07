@@ -111,7 +111,7 @@ impl App {
             self.selected = self.tree_items.len() - 1;
         }
         // Ensure selected is not a Session item
-        self.snap_to_non_session();
+        self.snap_to_selectable();
         // Clamp scroll offset to valid visual row range
         let total_visual = tree::total_visual_rows(&self.tree_items);
         if total_visual > 0 && self.scroll_offset >= total_visual {
@@ -135,7 +135,7 @@ impl App {
         let mut idx = self.selected;
         while idx > 0 {
             idx -= 1;
-            if !matches!(&self.tree_items[idx], tree::TreeItem::Session { .. }) {
+            if self.tree_items[idx].is_selectable() {
                 self.selected = idx;
                 self.ensure_visible();
                 return;
@@ -147,7 +147,7 @@ impl App {
         let mut idx = self.selected;
         while idx < self.tree_items.len().saturating_sub(1) {
             idx += 1;
-            if !matches!(&self.tree_items[idx], tree::TreeItem::Session { .. }) {
+            if self.tree_items[idx].is_selectable() {
                 self.selected = idx;
                 self.ensure_visible();
                 return;
@@ -159,7 +159,7 @@ impl App {
         if let Some(idx) = self
             .tree_items
             .iter()
-            .position(|item| !matches!(item, tree::TreeItem::Session { .. }))
+            .position(|item| item.is_selectable())
         {
             self.selected = idx;
         }
@@ -170,33 +170,30 @@ impl App {
         if let Some(idx) = self
             .tree_items
             .iter()
-            .rposition(|item| !matches!(item, tree::TreeItem::Session { .. }))
+            .rposition(|item| item.is_selectable())
         {
             self.selected = idx;
         }
     }
 
-    /// Snap selected to a non-Session item if it currently points to one.
-    fn snap_to_non_session(&mut self) {
+    /// Snap selected to a selectable item if it currently points to a non-selectable one.
+    fn snap_to_selectable(&mut self) {
         if self.tree_items.is_empty() {
             return;
         }
-        if !matches!(
-            &self.tree_items[self.selected],
-            tree::TreeItem::Session { .. }
-        ) {
+        if self.tree_items[self.selected].is_selectable() {
             return;
         }
         // Try forward first, then backward
         if let Some(offset) = self.tree_items[self.selected..]
             .iter()
-            .position(|item| !matches!(item, tree::TreeItem::Session { .. }))
+            .position(|item| item.is_selectable())
         {
             self.selected += offset;
         } else if let Some(idx) = self
             .tree_items
             .iter()
-            .position(|item| !matches!(item, tree::TreeItem::Session { .. }))
+            .position(|item| item.is_selectable())
         {
             self.selected = idx;
         }
