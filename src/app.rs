@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::time::Duration;
 
@@ -13,7 +13,9 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::Terminal;
 use tokio::sync::mpsc;
 
+use crate::agent::state::AgentState;
 use crate::event::{self, Action, AppEvent};
+use crate::ipc;
 use crate::tmux::{client as tmux_client, types::TmuxSession};
 use crate::ui::{status_bar, tree};
 
@@ -24,6 +26,7 @@ pub struct App {
     scroll_offset: usize,
     collapsed: HashSet<String>,
     should_quit: bool,
+    agent_states: HashMap<String, AgentState>,
 }
 
 impl App {
@@ -35,12 +38,13 @@ impl App {
             scroll_offset: 0,
             collapsed: HashSet::new(),
             should_quit: false,
+            agent_states: HashMap::new(),
         }
     }
 
     /// Refresh tmux data and rebuild the tree.
     async fn refresh(&mut self) -> Result<()> {
-        match tmux_client::fetch_tree().await {
+        match tmux_client::fetch_tree(&self.agent_states).await {
             Ok(sessions) => {
                 self.sessions = sessions;
                 self.rebuild_tree();
@@ -60,6 +64,18 @@ impl App {
         if !self.tree_items.is_empty() && self.selected >= self.tree_items.len() {
             self.selected = self.tree_items.len() - 1;
         }
+    }
+
+    /// Merge agent states into the existing session tree without re-fetching tmux.
+    fn merge_agent_states(&mut self) {
+        for session in &mut self.sessions {
+            for window in &mut session.windows {
+                for pane in &mut window.panes {
+                    pane.agent_state = self.agent_states.get(&pane.pane_id).cloned();
+                }
+            }
+        }
+        self.rebuild_tree();
     }
 
     fn move_up(&mut self) {
@@ -135,7 +151,8 @@ pub async fn run() -> Result<()> {
 
     let result = run_app(&mut terminal).await;
 
-    // Restore terminal
+    // Cleanup
+    ipc::cleanup_socket();
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -158,9 +175,18 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
     let tick_rate = Duration::from_secs(2);
 
     // Spawn event loop in a blocking thread (crossterm events are blocking)
+    let event_tx = tx.clone();
     tokio::task::spawn_blocking(move || {
         let rt = tokio::runtime::Handle::current();
-        rt.block_on(event::event_loop(tx, tick_rate))
+        rt.block_on(event::event_loop(event_tx, tick_rate))
+    });
+
+    // Start IPC socket listener
+    let ipc_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = ipc::start_listener(ipc_tx).await {
+            eprintln!("IPC listener error: {}", e);
+        }
     });
 
     loop {
@@ -213,6 +239,28 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                 }
                 AppEvent::Tick => {
                     app.refresh().await?;
+                }
+                AppEvent::AgentStateUpdate(state) => {
+                    use crate::agent::state::AgentStatus;
+                    if state.state == AgentStatus::Ended {
+                        app.agent_states.remove(&state.tmux_pane);
+                    } else if let Some(existing) =
+                        app.agent_states.get(&state.tmux_pane)
+                    {
+                        // Preserve existing session_id if incoming is None
+                        let session_id = state
+                            .session_id
+                            .clone()
+                            .or_else(|| existing.session_id.clone());
+                        let mut merged = state;
+                        merged.session_id = session_id;
+                        app.agent_states
+                            .insert(merged.tmux_pane.clone(), merged);
+                    } else {
+                        app.agent_states
+                            .insert(state.tmux_pane.clone(), state);
+                    }
+                    app.merge_agent_states();
                 }
             }
         }

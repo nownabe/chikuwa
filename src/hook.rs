@@ -3,7 +3,8 @@ use std::io::Read;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::agent::state::{self, AgentState, AgentStatus};
+use crate::agent::state::{AgentState, AgentStatus};
+use crate::ipc;
 
 /// Input JSON from Claude Code hooks (stdin).
 #[derive(Debug, Deserialize)]
@@ -12,17 +13,15 @@ struct HookInput {
     session_id: Option<String>,
 }
 
-/// Run the hook subcommand: read stdin, update state file.
-pub fn run(event: &str) -> Result<()> {
+/// Run the hook subcommand: read stdin, send state via IPC.
+pub async fn run(event: &str) -> Result<()> {
     let pane_id = std::env::var("TMUX_PANE")
         .context("TMUX_PANE environment variable not set (not running inside tmux?)")?;
 
-    match event {
-        "ended" => {
-            state::remove_state(&pane_id)?;
-            return Ok(());
-        }
-        _ => {}
+    if event == "ended" {
+        let state = AgentState::new(pane_id, AgentStatus::Ended);
+        ipc::send_state(&state).await?;
+        return Ok(());
     }
 
     let status = match event {
@@ -31,7 +30,7 @@ pub fn run(event: &str) -> Result<()> {
         "waiting" => AgentStatus::Waiting,
         "permission" => AgentStatus::Permission,
         "notification" => {
-            return run_notification(&pane_id);
+            return run_notification(&pane_id).await;
         }
         other => anyhow::bail!("Unknown hook event: {}", other),
     };
@@ -45,45 +44,29 @@ pub fn run(event: &str) -> Result<()> {
         serde_json::from_str(&stdin_buf).ok()
     };
 
-    // Read existing state or create new
-    let mut agent_state = state::read_state(&pane_id)?
-        .unwrap_or_else(|| AgentState::new(pane_id.clone(), status.clone()));
-
-    agent_state.state = status;
-    agent_state.updated_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let mut agent_state = AgentState::new(pane_id, status);
 
     if let Some(input) = input {
-        if input.session_id.is_some() {
-            agent_state.session_id = input.session_id;
-        }
+        agent_state.session_id = input.session_id;
     }
 
-    state::write_state(&agent_state)?;
+    ipc::send_state(&agent_state).await?;
     Ok(())
 }
 
-fn run_notification(pane_id: &str) -> Result<()> {
+async fn run_notification(pane_id: &str) -> Result<()> {
     let mut stdin_buf = String::new();
     std::io::stdin().read_to_string(&mut stdin_buf).ok();
 
-    // Check if this is a permission notification
     let is_permission = stdin_buf.contains("permission_prompt");
 
-    let mut agent_state = state::read_state(pane_id)?
-        .unwrap_or_else(|| AgentState::new(pane_id.to_string(), AgentStatus::Running));
+    let status = if is_permission {
+        AgentStatus::Permission
+    } else {
+        AgentStatus::Running
+    };
 
-    if is_permission {
-        agent_state.state = AgentStatus::Permission;
-    }
-
-    agent_state.updated_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    state::write_state(&agent_state)?;
+    let state = AgentState::new(pane_id.to_string(), status);
+    ipc::send_state(&state).await?;
     Ok(())
 }

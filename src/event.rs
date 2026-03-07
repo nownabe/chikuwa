@@ -4,11 +4,14 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
+use crate::agent::state::AgentState;
+
 /// Application events.
 #[derive(Debug)]
 pub enum AppEvent {
     Key(KeyEvent),
     Tick,
+    AgentStateUpdate(AgentState),
 }
 
 /// Spawn an event loop that sends key events and periodic ticks.

@@ -4,13 +4,12 @@ use anyhow::{Context, Result};
 use tokio::process::Command;
 
 use super::types::{TmuxPane, TmuxSession, TmuxWindow};
-use crate::agent::state::{self, AgentState};
+use crate::agent::state::AgentState;
 
 /// Fetch all tmux sessions/windows/panes and build a tree, merging agent states.
-pub async fn fetch_tree() -> Result<Vec<TmuxSession>> {
+pub async fn fetch_tree(agent_states: &HashMap<String, AgentState>) -> Result<Vec<TmuxSession>> {
     let raw = list_panes_all().await?;
-    let agent_states = state::read_all_states().unwrap_or_default();
-    Ok(build_tree(&raw, &agent_states))
+    Ok(build_tree(&raw, agent_states))
 }
 
 /// Run `tmux list-panes -a` with a custom format and return raw output.

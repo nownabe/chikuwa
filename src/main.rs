@@ -2,6 +2,7 @@ mod agent;
 mod app;
 mod event;
 mod hook;
+mod ipc;
 mod tmux;
 mod ui;
 
@@ -29,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Hook { event }) => {
-            hook::run(&event)?;
+            hook::run(&event).await?;
         }
         None => {
             app::run().await?;
