@@ -477,14 +477,14 @@ fn render_bordered_git_sub_line(
         TreeItem::Window {
             git_info: Some(gi),
             ..
-        } if gi.branch.is_some() || gi.pr.is_some() => (gi, " "),
+        } if gi.branch.is_some() || gi.pr.is_some() => (gi, "  "),
         TreeItem::Pane { pane, .. }
             if pane
                 .git_info
                 .as_ref()
                 .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()) =>
         {
-            (pane.git_info.as_ref().unwrap(), "   ")
+            (pane.git_info.as_ref().unwrap(), "    ")
         }
         _ => return None,
     };
