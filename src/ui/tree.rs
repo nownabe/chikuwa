@@ -138,11 +138,7 @@ pub fn flatten(
                         Some(pane.pane_current_command.clone()),
                     )
                 } else {
-                    // For multi-pane windows, use active pane's path for the label
-                    let active_pane = window.panes.iter().find(|p| p.pane_active);
-                    let path = active_pane.map(|p| p.pane_current_path.clone());
-                    let cmd = active_pane.map(|p| p.pane_current_command.clone());
-                    (None, None, path, cmd)
+                    (None, None, None, None)
                 };
 
             items.push(TreeItem::Window {
