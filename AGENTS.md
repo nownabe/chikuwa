@@ -1,0 +1,47 @@
+# Agents Guide
+
+## Build & Test
+
+```sh
+cargo build     # Build
+cargo test      # Run all tests
+cargo run       # Run TUI (requires tmux)
+cargo run -- hook <event>  # Run hook mode (requires TMUX_PANE)
+```
+
+The `RUSTUP_TOOLCHAIN` env var may override `rust-toolchain.toml`. If you hit version errors, prefix commands with `unset RUSTUP_TOOLCHAIN &&`.
+
+## Project Structure
+
+```
+src/
+  main.rs              # CLI entry point (clap subcommands)
+  app.rs               # TUI app state and main event loop
+  event.rs             # Keyboard/timer event handling
+  hook.rs              # `chikuwa hook <event>` subcommand (stdin → state file)
+  agent/
+    state.rs           # AgentState struct, state file read/write
+  tmux/
+    client.rs          # tmux command execution, output parsing, tree building
+    types.rs           # TmuxSession/TmuxWindow/TmuxPane structs
+  ui/
+    tree.rs            # Tree view widget (flatten + render)
+    status_bar.rs      # Bottom status bar
+    theme.rs           # Colors, icons, styles
+```
+
+## Architecture
+
+Two modes in a single binary:
+
+- **TUI mode** (`chikuwa`): Polls `tmux list-panes -a` every 2 seconds, reads state files from `$XDG_RUNTIME_DIR/chikuwa/`, and renders a tree view with ratatui.
+- **Hook mode** (`chikuwa hook <event>`): Reads JSON from stdin, writes/updates state files. Called by Claude Code hooks.
+
+State files are JSON at `$XDG_RUNTIME_DIR/chikuwa/<TMUX_PANE>.json` (fallback: `/tmp/chikuwa/`).
+
+## Conventions
+
+- Keep dependencies minimal. Prefer standard library where possible.
+- All public logic should have unit tests in `#[cfg(test)]` modules within the same file.
+- Use `anyhow::Result` for error handling throughout.
+- UI rendering uses ratatui. Styles and icons are centralized in `ui/theme.rs`.
