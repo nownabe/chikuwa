@@ -269,8 +269,9 @@ pub fn render(
     items: &[TreeItem],
     selected: usize,
     scroll_offset: usize,
+    anim_frame: usize,
 ) {
-    let visual_lines = build_visual_lines(items, area.width, selected);
+    let visual_lines = build_visual_lines(items, area.width, selected, anim_frame);
 
     let visible_height = area.height as usize;
     let visible_lines: Vec<Line> = visual_lines
@@ -283,7 +284,7 @@ pub fn render(
     f.render_widget(paragraph, area);
 }
 
-fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize) -> Vec<Line<'static>> {
+fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_frame: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut i = 0;
 
@@ -334,7 +335,7 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize) -> Vec<Li
                 // Content items with git sub-lines
                 for j in content_start..content_end {
                     let is_sel = j == selected;
-                    lines.push(render_bordered_item(&items[j], width, is_sel, attached));
+                    lines.push(render_bordered_item(&items[j], width, is_sel, attached, anim_frame));
                     if let Some(git_line) =
                         render_bordered_git_sub_line(&items[j], width, is_sel, attached)
                     {
@@ -463,10 +464,11 @@ fn render_bordered_item(
     width: u16,
     selected: bool,
     session_attached: bool,
+    anim_frame: usize,
 ) -> Line<'static> {
     let border_style = session_border_style(session_attached);
     let content_width = (width as usize).saturating_sub(4); // "│ " + content + " │"
-    let mut content_spans = render_content_spans(item, session_attached);
+    let mut content_spans = render_content_spans(item, session_attached, anim_frame);
     truncate_spans(&mut content_spans, content_width);
 
     let content_display_width: usize =
@@ -619,7 +621,7 @@ fn item_icon(
     theme::ICON_TERMINAL
 }
 
-fn render_content_spans(item: &TreeItem, session_attached: bool) -> Vec<Span<'static>> {
+fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usize) -> Vec<Span<'static>> {
     let icon_style = session_border_style(session_attached);
     match item {
         TreeItem::Window {
@@ -663,7 +665,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool) -> Vec<Span<'st
             }
 
             if let Some(agent) = agent_state {
-                append_agent_info(&mut spans, agent);
+                append_agent_info(&mut spans, agent, anim_frame);
             }
 
             spans
@@ -696,7 +698,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool) -> Vec<Span<'st
             }
 
             if let Some(ref agent) = pane.agent_state {
-                append_agent_info(&mut spans, agent);
+                append_agent_info(&mut spans, agent, anim_frame);
             }
 
             spans
@@ -705,10 +707,10 @@ fn render_content_spans(item: &TreeItem, session_attached: bool) -> Vec<Span<'st
     }
 }
 
-fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState) {
+fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState, anim_frame: usize) {
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
-        theme::status_icon(&agent.state).to_string(),
+        theme::status_icon(&agent.state, anim_frame).to_string(),
         theme::status_style(&agent.state),
     ));
 }

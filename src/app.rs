@@ -30,6 +30,7 @@ pub struct App {
     should_quit: bool,
     agent_states: HashMap<String, AgentState>,
     git_cache: GitInfoCache,
+    anim_frame: usize,
 }
 
 impl App {
@@ -43,6 +44,7 @@ impl App {
             should_quit: false,
             agent_states: HashMap::new(),
             git_cache: GitInfoCache::new(),
+            anim_frame: 0,
         }
     }
 
@@ -285,6 +287,18 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
         }
     });
 
+    // Animation tick (80ms for smooth spinner)
+    let anim_tx = tx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(130));
+        loop {
+            interval.tick().await;
+            if anim_tx.send(AppEvent::AnimationTick).await.is_err() {
+                break;
+            }
+        }
+    });
+
     loop {
         // Draw
         terminal.draw(|f| {
@@ -313,6 +327,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                 &app.tree_items,
                 app.selected,
                 app.scroll_offset,
+                app.anim_frame,
             );
 
             // Render status bar
@@ -340,6 +355,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                 }
                 AppEvent::Tick => {
                     app.refresh().await?;
+                }
+                AppEvent::AnimationTick => {
+                    app.anim_frame = app.anim_frame.wrapping_add(1);
                 }
                 AppEvent::AgentStateUpdate(state) => {
                     use crate::agent::state::AgentStatus;

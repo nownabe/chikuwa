@@ -12,7 +12,7 @@ pub const ICON_CARET_RIGHT: &str = "\u{f0da}"; //
 pub const ICON_FOLDER: &str = "\u{f07b}"; //
 pub const ICON_GIT_BRANCH: &str = "\u{e725}"; //
 pub const ICON_PR: &str = "\u{f407}"; //
-pub const ICON_RUNNING: &str = "\u{f0e7}"; //
+pub const SPINNER_FRAMES: &[&str] = &["·", "✢", "*", "✶", "✻", "✽"];
 pub const ICON_WAITING: &str = "\u{f28b}"; //
 pub const ICON_PERMISSION: &str = "\u{f071}"; //
 pub const ICON_STARTED: &str = "\u{f04b}"; //
@@ -21,9 +21,9 @@ pub const ICON_NEOVIM: &str = "\u{e7c5}"; //
 pub const ICON_TERMINAL: &str = "\u{f489}"; //
 pub const ICON_WINDOW: &str = "\u{f10aa}"; // 󱂪
 
-pub fn status_icon(status: &AgentStatus) -> &'static str {
+pub fn status_icon(status: &AgentStatus, anim_frame: usize) -> &'static str {
     match status {
-        AgentStatus::Running => ICON_RUNNING,
+        AgentStatus::Running => SPINNER_FRAMES[anim_frame % SPINNER_FRAMES.len()],
         AgentStatus::Waiting => ICON_WAITING,
         AgentStatus::Permission => ICON_PERMISSION,
         AgentStatus::Started => ICON_STARTED,

@@ -40,7 +40,7 @@ pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
 
     if running > 0 {
         spans.push(Span::styled(
-            format!("{} {} run", theme::ICON_RUNNING, running),
+            format!("{} {} run", theme::SPINNER_FRAMES[0], running),
             Style::default().fg(theme::status_color(&AgentStatus::Running)),
         ));
         spans.push(Span::raw(" "));

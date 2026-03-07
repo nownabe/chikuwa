@@ -11,6 +11,7 @@ use crate::agent::state::AgentState;
 pub enum AppEvent {
     Key(KeyEvent),
     Tick,
+    AnimationTick,
     AgentStateUpdate(AgentState),
 }
 
