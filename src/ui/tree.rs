@@ -665,7 +665,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             }
 
             if let Some(agent) = agent_state {
-                append_agent_info(&mut spans, agent, anim_frame);
+                append_agent_info(&mut spans, agent, anim_frame, session_attached);
             }
 
             spans
@@ -698,7 +698,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             }
 
             if let Some(ref agent) = pane.agent_state {
-                append_agent_info(&mut spans, agent, anim_frame);
+                append_agent_info(&mut spans, agent, anim_frame, session_attached);
             }
 
             spans
@@ -707,7 +707,12 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
     }
 }
 
-fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState, anim_frame: usize) {
+fn append_agent_info(
+    spans: &mut Vec<Span<'static>>,
+    agent: &AgentState,
+    anim_frame: usize,
+    session_attached: bool,
+) {
     let status_label = match agent.state {
         AgentStatus::Started => "starting",
         AgentStatus::Running => "running",
@@ -719,7 +724,7 @@ fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState, anim_fr
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
         theme::status_icon(&agent.state, anim_frame).to_string(),
-        theme::status_style(&agent.state),
+        theme::status_style(&agent.state, session_attached),
     ));
     spans.push(Span::styled(format!(" {}", status_label), text_style));
 }

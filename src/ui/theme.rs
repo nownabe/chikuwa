@@ -31,17 +31,21 @@ pub fn status_icon(status: &AgentStatus, anim_frame: usize) -> &'static str {
     }
 }
 
-pub fn status_color(status: &AgentStatus) -> Color {
+pub fn status_color(status: &AgentStatus, session_attached: bool) -> Color {
     match status {
-        AgentStatus::Running => COLOR_WHITE,
-        AgentStatus::Permission => COLOR_PURPLE,
-        AgentStatus::Waiting => COLOR_LIGHT_PURPLE,
-        AgentStatus::Started | AgentStatus::Ended => Color::DarkGray,
+        AgentStatus::Permission => {
+            if session_attached {
+                COLOR_LIGHT_PURPLE
+            } else {
+                COLOR_PURPLE
+            }
+        }
+        _ => Color::Rgb(0x7a, 0x7a, 0x7a),
     }
 }
 
-pub fn status_style(status: &AgentStatus) -> Style {
-    Style::default().fg(status_color(status))
+pub fn status_style(status: &AgentStatus, session_attached: bool) -> Style {
+    Style::default().fg(status_color(status, session_attached))
 }
 
 pub fn branch_style() -> Style {

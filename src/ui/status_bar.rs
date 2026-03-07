@@ -41,7 +41,7 @@ pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
     if running > 0 {
         spans.push(Span::styled(
             format!("{} {} run", theme::SPINNER_FRAMES[0], running),
-            Style::default().fg(theme::status_color(&AgentStatus::Running)),
+            Style::default().fg(theme::status_color(&AgentStatus::Running, true)),
         ));
         spans.push(Span::raw(" "));
     }
@@ -49,7 +49,7 @@ pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
     if waiting > 0 {
         spans.push(Span::styled(
             format!("{} {} wait", theme::ICON_WAITING, waiting),
-            Style::default().fg(theme::status_color(&AgentStatus::Waiting)),
+            Style::default().fg(theme::status_color(&AgentStatus::Waiting, true)),
         ));
         spans.push(Span::raw(" "));
     }
@@ -57,7 +57,7 @@ pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
     if permission > 0 {
         spans.push(Span::styled(
             format!("{} {} perm", theme::ICON_PERMISSION, permission),
-            Style::default().fg(theme::status_color(&AgentStatus::Permission)),
+            Style::default().fg(theme::status_color(&AgentStatus::Permission, true)),
         ));
     }
 
