@@ -646,7 +646,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
                     };
                 let needs_attention = matches!(
                     agent_state.as_ref().map(|a| &a.state),
-                    Some(AgentStatus::Permission)
+                    Some(AgentStatus::Permission | AgentStatus::Waiting)
                 );
                 if needs_attention {
                     spans.push(Span::styled(
@@ -680,7 +680,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             let label = display_label(&pane.pane_current_command, &pane.pane_current_path);
             let needs_attention = matches!(
                 pane.agent_state.as_ref().map(|a| &a.state),
-                Some(AgentStatus::Permission)
+                Some(AgentStatus::Permission | AgentStatus::Waiting)
             );
             if needs_attention {
                 spans.push(Span::styled(

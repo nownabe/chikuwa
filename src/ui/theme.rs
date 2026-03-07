@@ -33,7 +33,7 @@ pub fn status_icon(status: &AgentStatus, anim_frame: usize) -> &'static str {
 
 pub fn status_color(status: &AgentStatus, session_attached: bool) -> Color {
     match status {
-        AgentStatus::Permission => {
+        AgentStatus::Permission | AgentStatus::Waiting => {
             if session_attached {
                 COLOR_LIGHT_PURPLE
             } else {
