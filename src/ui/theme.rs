@@ -52,6 +52,3 @@ pub fn branch_style() -> Style {
     Style::default().fg(COLOR_LIGHT_PURPLE)
 }
 
-pub fn pr_style() -> Style {
-    Style::default().fg(COLOR_PURPLE)
-}
