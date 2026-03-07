@@ -608,13 +608,15 @@ fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
             );
             spans.push(Span::raw(format!("{} ", icon)));
 
-            let label =
-                if let (Some(cmd), Some(path)) = (pane_current_command, pane_current_path) {
-                    display_label(cmd, path)
-                } else {
-                    window_name.clone()
-                };
-            spans.push(Span::raw(label));
+            if !*has_multiple_panes {
+                let label =
+                    if let (Some(cmd), Some(path)) = (pane_current_command, pane_current_path) {
+                        display_label(cmd, path)
+                    } else {
+                        window_name.clone()
+                    };
+                spans.push(Span::raw(label));
+            }
 
             if let Some(agent) = agent_state {
                 append_agent_info(&mut spans, agent);
