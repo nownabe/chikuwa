@@ -708,11 +708,20 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
 }
 
 fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState, anim_frame: usize) {
+    let status_label = match agent.state {
+        AgentStatus::Started => "starting",
+        AgentStatus::Running => "running",
+        AgentStatus::Waiting => "waiting",
+        AgentStatus::Permission => "needs input",
+        AgentStatus::Ended => "ended",
+    };
+    let text_style = Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a));
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
         theme::status_icon(&agent.state, anim_frame).to_string(),
         theme::status_style(&agent.state),
     ));
+    spans.push(Span::styled(format!(" {}", status_label), text_style));
 }
 
 #[cfg(test)]
