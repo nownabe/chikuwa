@@ -131,3 +131,101 @@ pub async fn switch_to(client_tty: &str, target: &str) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::state::{AgentState, AgentStatus};
+
+    #[test]
+    fn test_build_tree_single_session_single_window() {
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n";
+        let tree = build_tree(raw, &HashMap::new());
+
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].session_name, "main");
+        assert!(tree[0].session_attached);
+        assert_eq!(tree[0].windows.len(), 1);
+        assert_eq!(tree[0].windows[0].window_name, "zsh");
+        assert_eq!(tree[0].windows[0].panes.len(), 1);
+        assert_eq!(tree[0].windows[0].panes[0].pane_current_command, "bash");
+    }
+
+    #[test]
+    fn test_build_tree_multiple_sessions() {
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n\
+                    dev\t0\t0\tvim\t1\t%1\t0\tvim\t1\n";
+        let tree = build_tree(raw, &HashMap::new());
+
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].session_name, "main");
+        assert!(tree[0].session_attached);
+        assert_eq!(tree[1].session_name, "dev");
+        assert!(!tree[1].session_attached);
+    }
+
+    #[test]
+    fn test_build_tree_multiple_windows() {
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n\
+                    main\t1\t1\tvim\t0\t%1\t0\tvim\t1\n";
+        let tree = build_tree(raw, &HashMap::new());
+
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].windows.len(), 2);
+        assert_eq!(tree[0].windows[0].window_name, "zsh");
+        assert_eq!(tree[0].windows[1].window_name, "vim");
+    }
+
+    #[test]
+    fn test_build_tree_multiple_panes() {
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n\
+                    main\t1\t0\tzsh\t1\t%1\t1\tvim\t0\n";
+        let tree = build_tree(raw, &HashMap::new());
+
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].windows.len(), 1);
+        assert_eq!(tree[0].windows[0].panes.len(), 2);
+        assert_eq!(tree[0].windows[0].panes[0].pane_id, "%0");
+        assert_eq!(tree[0].windows[0].panes[1].pane_id, "%1");
+    }
+
+    #[test]
+    fn test_build_tree_with_agent_state() {
+        let raw = "main\t1\t0\tclaude\t1\t%0\t0\tnode\t1\n";
+        let mut agents = HashMap::new();
+        agents.insert(
+            "%0".to_string(),
+            AgentState {
+                tmux_pane: "%0".to_string(),
+                session_id: Some("sess1".to_string()),
+                state: AgentStatus::Running,
+                model: Some("Opus 4.6".to_string()),
+                context_pct: Some(19),
+                cost_usd: Some(0.42),
+                project: None,
+                updated_at: 100,
+            },
+        );
+
+        let tree = build_tree(raw, &agents);
+        let pane = &tree[0].windows[0].panes[0];
+        assert!(pane.agent_state.is_some());
+        let agent = pane.agent_state.as_ref().unwrap();
+        assert_eq!(agent.state, AgentStatus::Running);
+        assert_eq!(agent.model, Some("Opus 4.6".to_string()));
+    }
+
+    #[test]
+    fn test_build_tree_skips_short_lines() {
+        let raw = "bad\tline\n\
+                    main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n";
+        let tree = build_tree(raw, &HashMap::new());
+        assert_eq!(tree.len(), 1);
+    }
+
+    #[test]
+    fn test_build_tree_empty_input() {
+        let tree = build_tree("", &HashMap::new());
+        assert!(tree.is_empty());
+    }
+}

@@ -50,3 +50,74 @@ pub enum Action {
     Bottom,
     None,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    fn key_with_mod(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    #[test]
+    fn test_quit_q() {
+        assert_eq!(handle_key(key(KeyCode::Char('q'))), Action::Quit);
+    }
+
+    #[test]
+    fn test_quit_ctrl_c() {
+        assert_eq!(
+            handle_key(key_with_mod(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Action::Quit
+        );
+    }
+
+    #[test]
+    fn test_navigation_jk() {
+        assert_eq!(handle_key(key(KeyCode::Char('j'))), Action::Down);
+        assert_eq!(handle_key(key(KeyCode::Char('k'))), Action::Up);
+    }
+
+    #[test]
+    fn test_navigation_arrows() {
+        assert_eq!(handle_key(key(KeyCode::Down)), Action::Down);
+        assert_eq!(handle_key(key(KeyCode::Up)), Action::Up);
+    }
+
+    #[test]
+    fn test_select_enter() {
+        assert_eq!(handle_key(key(KeyCode::Enter)), Action::Select);
+    }
+
+    #[test]
+    fn test_select_space() {
+        assert_eq!(handle_key(key(KeyCode::Char(' '))), Action::Select);
+    }
+
+    #[test]
+    fn test_top_bottom() {
+        assert_eq!(handle_key(key(KeyCode::Char('g'))), Action::Top);
+        assert_eq!(handle_key(key(KeyCode::Char('G'))), Action::Bottom);
+    }
+
+    #[test]
+    fn test_unknown_key() {
+        assert_eq!(handle_key(key(KeyCode::Char('x'))), Action::None);
+        assert_eq!(handle_key(key(KeyCode::F(1))), Action::None);
+    }
+}

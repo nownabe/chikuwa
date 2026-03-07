@@ -158,3 +158,161 @@ fn read_state_from_path(path: &Path) -> Result<AgentState> {
         .with_context(|| format!("Failed to parse state file: {}", path.display()))?;
     Ok(state)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_status_serialize() {
+        assert_eq!(
+            serde_json::to_string(&AgentStatus::Running).unwrap(),
+            "\"running\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentStatus::Waiting).unwrap(),
+            "\"waiting\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentStatus::Permission).unwrap(),
+            "\"permission\""
+        );
+    }
+
+    #[test]
+    fn test_agent_status_deserialize() {
+        assert_eq!(
+            serde_json::from_str::<AgentStatus>("\"running\"").unwrap(),
+            AgentStatus::Running
+        );
+        assert_eq!(
+            serde_json::from_str::<AgentStatus>("\"started\"").unwrap(),
+            AgentStatus::Started
+        );
+    }
+
+    #[test]
+    fn test_agent_status_display() {
+        assert_eq!(AgentStatus::Running.to_string(), "running");
+        assert_eq!(AgentStatus::Waiting.to_string(), "waiting");
+        assert_eq!(AgentStatus::Permission.to_string(), "permission");
+        assert_eq!(AgentStatus::Started.to_string(), "started");
+        assert_eq!(AgentStatus::Ended.to_string(), "ended");
+    }
+
+    #[test]
+    fn test_agent_state_new() {
+        let state = AgentState::new("%5".to_string(), AgentStatus::Running);
+        assert_eq!(state.tmux_pane, "%5");
+        assert_eq!(state.state, AgentStatus::Running);
+        assert!(state.session_id.is_none());
+        assert!(state.model.is_none());
+        assert!(state.context_pct.is_none());
+        assert!(state.cost_usd.is_none());
+        assert!(state.project.is_none());
+        assert!(state.updated_at > 0);
+    }
+
+    #[test]
+    fn test_agent_state_roundtrip_json() {
+        let state = AgentState {
+            tmux_pane: "%5".to_string(),
+            session_id: Some("abc123".to_string()),
+            state: AgentStatus::Running,
+            model: Some("Opus 4.6".to_string()),
+            context_pct: Some(42),
+            cost_usd: Some(1.23),
+            project: Some("/home/user/project".to_string()),
+            updated_at: 1234567890,
+        };
+
+        let json = serde_json::to_string(&state).unwrap();
+        let parsed: AgentState = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.tmux_pane, "%5");
+        assert_eq!(parsed.session_id, Some("abc123".to_string()));
+        assert_eq!(parsed.state, AgentStatus::Running);
+        assert_eq!(parsed.model, Some("Opus 4.6".to_string()));
+        assert_eq!(parsed.context_pct, Some(42));
+        assert_eq!(parsed.cost_usd, Some(1.23));
+        assert_eq!(parsed.project, Some("/home/user/project".to_string()));
+        assert_eq!(parsed.updated_at, 1234567890);
+    }
+
+    #[test]
+    fn test_agent_state_optional_fields_omitted() {
+        let state = AgentState::new("%0".to_string(), AgentStatus::Waiting);
+        let json = serde_json::to_string(&state).unwrap();
+
+        // Optional None fields should be omitted
+        assert!(!json.contains("session_id"));
+        assert!(!json.contains("model"));
+        assert!(!json.contains("context_pct"));
+        assert!(!json.contains("cost_usd"));
+        assert!(!json.contains("project"));
+    }
+
+    #[test]
+    fn test_agent_state_deserialize_minimal() {
+        let json = r#"{"tmux_pane":"%0","state":"waiting","updated_at":100}"#;
+        let state: AgentState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.tmux_pane, "%0");
+        assert_eq!(state.state, AgentStatus::Waiting);
+        assert!(state.session_id.is_none());
+        assert!(state.model.is_none());
+    }
+
+    #[test]
+    fn test_state_file_read_write_remove() {
+        let dir = tempfile::tempdir().unwrap();
+        // Override state_dir by writing/reading directly with paths
+        let pane_id = "%test_rw";
+        let path = dir.path().join(format!("{}.json", pane_id));
+
+        let state = AgentState {
+            tmux_pane: pane_id.to_string(),
+            session_id: Some("sess1".to_string()),
+            state: AgentStatus::Running,
+            model: None,
+            context_pct: None,
+            cost_usd: None,
+            project: None,
+            updated_at: 999,
+        };
+
+        // Write
+        let content = serde_json::to_string_pretty(&state).unwrap();
+        std::fs::write(&path, &content).unwrap();
+
+        // Read back
+        let read_back: AgentState =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(read_back.tmux_pane, pane_id);
+        assert_eq!(read_back.state, AgentStatus::Running);
+
+        // Remove
+        std::fs::remove_file(&path).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_read_state_from_path_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.json");
+        let json = r#"{"tmux_pane":"%1","state":"waiting","updated_at":100}"#;
+        std::fs::write(&path, json).unwrap();
+
+        let state = read_state_from_path(&path).unwrap();
+        assert_eq!(state.tmux_pane, "%1");
+        assert_eq!(state.state, AgentStatus::Waiting);
+    }
+
+    #[test]
+    fn test_read_state_from_path_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.json");
+        std::fs::write(&path, "not json").unwrap();
+
+        assert!(read_state_from_path(&path).is_err());
+    }
+}
