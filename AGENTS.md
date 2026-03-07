@@ -39,6 +39,19 @@ Two modes in a single binary:
 
 State files are JSON at `$XDG_RUNTIME_DIR/chikuwa/<TMUX_PANE>.json` (fallback: `/tmp/chikuwa/`).
 
+## Commit Messages
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/). Common types:
+
+- `feat` — new feature
+- `fix` — bug fix
+- `style` — visual/formatting changes (no behavior change)
+- `refactor` — code restructuring (no feature or fix)
+- `perf` — performance improvement
+- `test` — add/update tests
+- `docs` — documentation only
+- `chore` — build, CI, tooling, etc.
+
 ## Conventions
 
 - Keep dependencies minimal. Prefer standard library where possible.
