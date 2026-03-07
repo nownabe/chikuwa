@@ -30,6 +30,8 @@ pub enum TreeItem {
         pane_current_path: Option<String>,
         /// Current command of the (single) pane, for display_label.
         pane_current_command: Option<String>,
+        /// Whether this window has more than one pane.
+        has_multiple_panes: bool,
     },
     Pane {
         session_name: String,
@@ -140,6 +142,7 @@ pub fn flatten(
                 git_info,
                 pane_current_path,
                 pane_current_command,
+                has_multiple_panes: window.panes.len() > 1,
             });
 
             // Only show individual panes if there's more than one
@@ -562,6 +565,30 @@ fn truncate_spans(spans: &mut Vec<Span<'static>>, max_width: usize) {
     }
 }
 
+/// Choose the icon for a Window or Pane item.
+/// Priority: agent > neovim > shell > multi-pane window. Fallback: terminal.
+fn item_icon(
+    agent_state: Option<&AgentState>,
+    command: Option<&str>,
+    has_multiple_panes: bool,
+) -> &'static str {
+    if agent_state.is_some() {
+        return theme::ICON_CLAUDE;
+    }
+    if let Some(cmd) = command {
+        if cmd == "nvim" {
+            return theme::ICON_NEOVIM;
+        }
+        if is_shell(cmd) {
+            return theme::ICON_TERMINAL;
+        }
+    }
+    if has_multiple_panes {
+        return theme::ICON_WINDOW;
+    }
+    theme::ICON_TERMINAL
+}
+
 fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
     match item {
         TreeItem::Window {
@@ -569,9 +596,17 @@ fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
             agent_state,
             pane_current_path,
             pane_current_command,
+            has_multiple_panes,
             ..
         } => {
             let mut spans = Vec::new();
+
+            let icon = item_icon(
+                agent_state.as_ref(),
+                pane_current_command.as_deref(),
+                *has_multiple_panes,
+            );
+            spans.push(Span::raw(format!("{} ", icon)));
 
             let label =
                 if let (Some(cmd), Some(path)) = (pane_current_command, pane_current_path) {
@@ -588,7 +623,15 @@ fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
             spans
         }
         TreeItem::Pane { pane, .. } => {
-            let mut spans = vec![Span::styled("  ".to_string(), theme::dim_style())];
+            let icon = item_icon(
+                pane.agent_state.as_ref(),
+                Some(&pane.pane_current_command),
+                false,
+            );
+            let mut spans = vec![Span::styled(
+                format!("  {} ", icon),
+                theme::dim_style(),
+            )];
 
             let label = display_label(&pane.pane_current_command, &pane.pane_current_path);
             spans.push(Span::raw(label));
@@ -777,6 +820,7 @@ mod tests {
             git_info: None,
             pane_current_path: None,
             pane_current_command: None,
+            has_multiple_panes: false,
         };
         assert_eq!(item.tmux_target(), "main:2");
     }
@@ -974,6 +1018,7 @@ mod tests {
                 git_info: None,
                 pane_current_path: None,
                 pane_current_command: None,
+                has_multiple_panes: false,
             },
         ];
 
@@ -1036,6 +1081,7 @@ mod tests {
             }),
             pane_current_path: None,
             pane_current_command: None,
+            has_multiple_panes: false,
         };
         assert!(item_has_git_info(&with_branch));
 
@@ -1047,6 +1093,7 @@ mod tests {
             git_info: None,
             pane_current_path: None,
             pane_current_command: None,
+            has_multiple_panes: false,
         };
         assert!(!item_has_git_info(&without));
 

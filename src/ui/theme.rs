@@ -16,6 +16,10 @@ pub const ICON_RUNNING: &str = "\u{f0e7}"; //
 pub const ICON_WAITING: &str = "\u{f28b}"; //
 pub const ICON_PERMISSION: &str = "\u{f071}"; //
 pub const ICON_STARTED: &str = "\u{f04b}"; //
+pub const ICON_CLAUDE: &str = "\u{f06a9}"; // 󰚩
+pub const ICON_NEOVIM: &str = "\u{e7c5}"; //
+pub const ICON_TERMINAL: &str = "\u{f489}"; //
+pub const ICON_WINDOW: &str = "\u{f10aa}"; // 󱂪
 
 pub fn status_icon(status: &AgentStatus) -> &'static str {
     match status {
