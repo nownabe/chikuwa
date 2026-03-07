@@ -1,10 +1,11 @@
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::agent::state::AgentState;
+use crate::git::GitInfo;
 use crate::tmux::types::{TmuxPane, TmuxSession};
 use crate::ui::theme;
 
@@ -15,21 +16,25 @@ pub enum TreeItem {
         name: String,
         attached: bool,
         collapsed: bool,
+        repo_name: Option<String>,
     },
     Window {
         session_name: String,
         window_index: u32,
         window_name: String,
-        is_last: bool,
         /// Agent state if this window has exactly one pane with an agent.
         agent_state: Option<AgentState>,
+        /// Git info for single-pane windows.
+        git_info: Option<GitInfo>,
+        /// Current path of the (single) pane, for display_label.
+        pane_current_path: Option<String>,
+        /// Current command of the (single) pane, for display_label.
+        pane_current_command: Option<String>,
     },
     Pane {
         session_name: String,
         window_index: u32,
         pane: TmuxPane,
-        is_last_window: bool,
-        is_last_pane: bool,
     },
 }
 
@@ -53,6 +58,40 @@ impl TreeItem {
     }
 }
 
+/// Returns true if the command is a shell (zsh, bash, fish, etc.)
+fn is_shell(command: &str) -> bool {
+    matches!(
+        command,
+        "zsh" | "bash" | "fish" | "sh" | "dash" | "ksh" | "csh" | "tcsh"
+    )
+}
+
+/// Compute a display label: directory basename for shells, command name otherwise.
+fn display_label(command: &str, path: &str) -> String {
+    if is_shell(command) {
+        std::path::Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| command.to_string())
+    } else {
+        command.to_string()
+    }
+}
+
+/// Whether this item has displayable git info (branch or PR).
+fn item_has_git_info(item: &TreeItem) -> bool {
+    match item {
+        TreeItem::Window {
+            git_info: Some(gi), ..
+        } => gi.branch.is_some() || gi.pr.is_some(),
+        TreeItem::Pane { pane, .. } => pane
+            .git_info
+            .as_ref()
+            .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()),
+        _ => false,
+    }
+}
+
 /// Flatten the session tree into a list of TreeItems for rendering.
 pub fn flatten(
     sessions: &[TmuxSession],
@@ -66,42 +105,50 @@ pub fn flatten(
             name: session.session_name.clone(),
             attached: session.session_attached,
             collapsed,
+            repo_name: session.repo_name.clone(),
         });
 
         if collapsed {
             continue;
         }
 
-        let window_count = session.windows.len();
-        for (wi, window) in session.windows.iter().enumerate() {
-            let is_last_window = wi == window_count - 1;
+        for window in session.windows.iter() {
 
-            // If single pane, embed agent state in the Window item
-            let agent_state = if window.panes.len() == 1 {
-                window.panes[0].agent_state.clone()
-            } else {
-                None
-            };
+            // For single-pane windows, embed pane details in the Window item
+            let (agent_state, git_info, pane_current_path, pane_current_command) =
+                if window.panes.len() == 1 {
+                    let pane = &window.panes[0];
+                    (
+                        pane.agent_state.clone(),
+                        pane.git_info.clone(),
+                        Some(pane.pane_current_path.clone()),
+                        Some(pane.pane_current_command.clone()),
+                    )
+                } else {
+                    // For multi-pane windows, use active pane's path for the label
+                    let active_pane = window.panes.iter().find(|p| p.pane_active);
+                    let path = active_pane.map(|p| p.pane_current_path.clone());
+                    let cmd = active_pane.map(|p| p.pane_current_command.clone());
+                    (None, None, path, cmd)
+                };
 
             items.push(TreeItem::Window {
                 session_name: session.session_name.clone(),
                 window_index: window.window_index,
                 window_name: window.window_name.clone(),
-                is_last: is_last_window,
                 agent_state,
+                git_info,
+                pane_current_path,
+                pane_current_command,
             });
 
             // Only show individual panes if there's more than one
             if window.panes.len() > 1 {
-                let pane_count = window.panes.len();
-                for (pi, pane) in window.panes.iter().enumerate() {
-                    let is_last_pane = pi == pane_count - 1;
+                for pane in window.panes.iter() {
                     items.push(TreeItem::Pane {
                         session_name: session.session_name.clone(),
                         window_index: window.window_index,
                         pane: pane.clone(),
-                        is_last_window,
-                        is_last_pane,
                     });
                 }
             }
@@ -111,7 +158,97 @@ pub fn flatten(
     items
 }
 
-/// Render the tree view.
+/// Compute the visual row index for a given item index.
+/// Visual rows include session borders and git sub-lines.
+pub fn item_to_visual_row(items: &[TreeItem], target: usize) -> usize {
+    let mut visual = 0;
+    let mut i = 0;
+
+    while i < items.len() {
+        if i == target {
+            return visual;
+        }
+
+        match &items[i] {
+            TreeItem::Session {
+                collapsed: true, ..
+            } => {
+                visual += 1;
+                i += 1;
+            }
+            TreeItem::Session {
+                collapsed: false, ..
+            } => {
+                visual += 1; // top border
+                i += 1;
+
+                while i < items.len() && !matches!(&items[i], TreeItem::Session { .. }) {
+                    if i == target {
+                        return visual;
+                    }
+                    visual += 1;
+                    if item_has_git_info(&items[i]) {
+                        visual += 1; // git sub-line
+                    }
+                    i += 1;
+                }
+
+                visual += 1; // bottom border
+            }
+            _ => {
+                visual += 1;
+                if item_has_git_info(&items[i]) {
+                    visual += 1;
+                }
+                i += 1;
+            }
+        }
+    }
+
+    visual
+}
+
+/// Total number of visual rows.
+pub fn total_visual_rows(items: &[TreeItem]) -> usize {
+    let mut visual = 0;
+    let mut i = 0;
+
+    while i < items.len() {
+        match &items[i] {
+            TreeItem::Session {
+                collapsed: true, ..
+            } => {
+                visual += 1;
+                i += 1;
+            }
+            TreeItem::Session {
+                collapsed: false, ..
+            } => {
+                visual += 1; // top border
+                i += 1;
+                while i < items.len() && !matches!(&items[i], TreeItem::Session { .. }) {
+                    visual += 1;
+                    if item_has_git_info(&items[i]) {
+                        visual += 1;
+                    }
+                    i += 1;
+                }
+                visual += 1; // bottom border
+            }
+            _ => {
+                visual += 1;
+                if item_has_git_info(&items[i]) {
+                    visual += 1;
+                }
+                i += 1;
+            }
+        }
+    }
+
+    visual
+}
+
+/// Render the tree view with per-session borders.
 pub fn render(
     f: &mut Frame,
     area: Rect,
@@ -119,103 +256,369 @@ pub fn render(
     selected: usize,
     scroll_offset: usize,
 ) {
-    let block = Block::default()
-        .title(" chikuwa ")
-        .title_style(theme::header_style())
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ratatui::style::Color::DarkGray));
+    let visual_lines = build_visual_lines(items, area.width, selected);
 
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let visible_height = inner.height as usize;
-    let visible_items: Vec<Line> = items
-        .iter()
-        .enumerate()
+    let visible_height = area.height as usize;
+    let visible_lines: Vec<Line> = visual_lines
+        .into_iter()
         .skip(scroll_offset)
         .take(visible_height)
-        .map(|(idx, item)| render_item(item, idx == selected))
         .collect();
 
-    let paragraph = Paragraph::new(visible_items);
-    f.render_widget(paragraph, inner);
+    let paragraph = Paragraph::new(visible_lines);
+    f.render_widget(paragraph, area);
 }
 
-fn render_item(item: &TreeItem, selected: bool) -> Line<'static> {
-    let base_style = if selected {
-        theme::selected_style()
-    } else {
+fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let mut i = 0;
+
+    while i < items.len() {
+        match &items[i] {
+            TreeItem::Session {
+                collapsed: true,
+                name,
+                attached,
+                repo_name,
+            } => {
+                lines.push(render_collapsed_session(
+                    name,
+                    *attached,
+                    repo_name.as_deref(),
+                    i == selected,
+                ));
+                i += 1;
+            }
+            TreeItem::Session {
+                collapsed: false,
+                name,
+                attached,
+                repo_name,
+            } => {
+                let is_selected = i == selected;
+                let name = name.clone();
+                let attached = *attached;
+                let repo_name = repo_name.clone();
+                i += 1;
+
+                // Collect content items until next Session or end
+                let content_start = i;
+                while i < items.len() && !matches!(&items[i], TreeItem::Session { .. }) {
+                    i += 1;
+                }
+                let content_end = i;
+
+                // Top border
+                lines.push(render_session_top_border(
+                    &name,
+                    attached,
+                    repo_name.as_deref(),
+                    width,
+                    is_selected,
+                ));
+
+                // Content items with git sub-lines
+                for j in content_start..content_end {
+                    let is_sel = j == selected;
+                    lines.push(render_bordered_item(&items[j], width, is_sel));
+                    if let Some(git_line) =
+                        render_bordered_git_sub_line(&items[j], width, is_sel)
+                    {
+                        lines.push(git_line);
+                    }
+                }
+
+                // Bottom border
+                lines.push(render_session_bottom_border(width));
+            }
+            _ => {
+                // Orphan item (shouldn't happen)
+                i += 1;
+            }
+        }
+    }
+
+    lines
+}
+
+fn render_collapsed_session(
+    name: &str,
+    attached: bool,
+    repo_name: Option<&str>,
+    selected: bool,
+) -> Line<'static> {
+    let marker = if attached { " *" } else { "" };
+    let style = if attached {
         Style::default()
+            .fg(theme::COLOR_WHITE)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
     };
 
-    match item {
-        TreeItem::Session {
+    let mut spans = vec![Span::styled(
+        format!(
+            "{} {} {}{}",
+            theme::ICON_CARET_RIGHT,
+            theme::ICON_FOLDER,
             name,
-            attached,
-            collapsed,
-        } => {
-            let icon = if *collapsed { "▸" } else { "▾" };
-            let marker = if *attached { " *" } else { "" };
-            let style = if selected {
-                theme::selected_style()
-            } else {
-                theme::session_style(*attached)
-            };
-            Line::from(vec![Span::styled(
-                format!("{} {} {}{}", icon, theme::ICON_SESSION, name, marker),
-                style,
-            )])
+            marker
+        ),
+        style,
+    )];
+
+    if let Some(repo) = repo_name {
+        spans.push(Span::styled(format!(" \u{2500}\u{2500} {}", repo), theme::dim_style()));
+    }
+
+    let mut line = Line::from(spans);
+    if selected {
+        for span in &mut line.spans {
+            span.style = span.style.bg(Color::DarkGray);
         }
+    }
+    line
+}
+
+fn render_session_top_border(
+    name: &str,
+    attached: bool,
+    repo_name: Option<&str>,
+    width: u16,
+    selected: bool,
+) -> Line<'static> {
+    let marker = if attached { " *" } else { "" };
+    let left_text = format!(" {}{} ", name, marker);
+    let right_text = repo_name
+        .map(|r| format!(" {} ", r))
+        .unwrap_or_default();
+
+    let left_width = left_text.chars().count();
+    let right_width = right_text.chars().count();
+    let fill_count = (width as usize).saturating_sub(2 + left_width + right_width);
+    let fill = "\u{2500}".repeat(fill_count);
+
+    let session_style = if attached {
+        Style::default()
+            .fg(theme::COLOR_WHITE)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let mut spans = vec![
+        Span::styled("\u{250c}", theme::dim_style()),
+        Span::styled(left_text, session_style),
+        Span::styled(fill, theme::dim_style()),
+    ];
+
+    if !right_text.is_empty() {
+        spans.push(Span::styled(right_text, theme::dim_style()));
+    }
+
+    spans.push(Span::styled("\u{2510}", theme::dim_style()));
+
+    let mut line = Line::from(spans);
+    if selected {
+        for span in &mut line.spans {
+            span.style = span.style.bg(Color::DarkGray);
+        }
+    }
+    line
+}
+
+fn render_session_bottom_border(width: u16) -> Line<'static> {
+    let fill_count = (width as usize).saturating_sub(2);
+    let fill = "\u{2500}".repeat(fill_count);
+    Line::from(vec![
+        Span::styled("\u{2514}", theme::dim_style()),
+        Span::styled(fill, theme::dim_style()),
+        Span::styled("\u{2518}", theme::dim_style()),
+    ])
+}
+
+fn render_bordered_item(item: &TreeItem, width: u16, selected: bool) -> Line<'static> {
+    let content_width = (width as usize).saturating_sub(4); // "│ " + content + " │"
+    let mut content_spans = render_content_spans(item);
+    truncate_spans(&mut content_spans, content_width);
+
+    let content_display_width: usize =
+        content_spans.iter().map(|s| s.content.chars().count()).sum();
+    let padding_len = content_width.saturating_sub(content_display_width);
+
+    if selected {
+        for span in &mut content_spans {
+            span.style = span.style.bg(Color::DarkGray);
+        }
+    }
+
+    let mut spans = vec![Span::styled("\u{2502} ", theme::dim_style())];
+    spans.extend(content_spans);
+    if padding_len > 0 {
+        let pad_style = if selected {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        spans.push(Span::styled(" ".repeat(padding_len), pad_style));
+    }
+    spans.push(Span::styled(" \u{2502}", theme::dim_style()));
+
+    Line::from(spans)
+}
+
+/// Render a git info sub-line for an item, if it has displayable git info.
+fn render_bordered_git_sub_line(
+    item: &TreeItem,
+    width: u16,
+    selected: bool,
+) -> Option<Line<'static>> {
+    let (gi, prefix) = match item {
         TreeItem::Window {
-            window_index,
+            git_info: Some(gi),
+            ..
+        } if gi.branch.is_some() || gi.pr.is_some() => (gi, "   ".to_string()),
+        TreeItem::Pane { pane, .. }
+            if pane
+                .git_info
+                .as_ref()
+                .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()) =>
+        {
+            (pane.git_info.as_ref().unwrap(), "     ".to_string())
+        }
+        _ => return None,
+    };
+
+    let git_spans = git_display_spans(gi);
+    if git_spans.is_empty() {
+        return None;
+    }
+
+    let content_width = (width as usize).saturating_sub(4);
+    let mut inner_spans = vec![Span::styled(prefix, theme::dim_style())];
+    inner_spans.extend(git_spans);
+    truncate_spans(&mut inner_spans, content_width);
+
+    let inner_width: usize = inner_spans.iter().map(|s| s.content.chars().count()).sum();
+    let padding_len = content_width.saturating_sub(inner_width);
+
+    if selected {
+        for span in &mut inner_spans {
+            span.style = span.style.bg(Color::DarkGray);
+        }
+    }
+
+    let mut spans = vec![Span::styled("\u{2502} ", theme::dim_style())];
+    spans.extend(inner_spans);
+    if padding_len > 0 {
+        let pad_style = if selected {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        spans.push(Span::styled(" ".repeat(padding_len), pad_style));
+    }
+    spans.push(Span::styled(" \u{2502}", theme::dim_style()));
+
+    Some(Line::from(spans))
+}
+
+/// Build git display spans: PR takes priority over branch.
+fn git_display_spans(gi: &GitInfo) -> Vec<Span<'static>> {
+    if let Some(ref pr) = gi.pr {
+        vec![Span::styled(
+            format!("{} #{} {}", theme::ICON_PR, pr.number, pr.title),
+            theme::pr_style(),
+        )]
+    } else if let Some(ref branch) = gi.branch {
+        vec![Span::styled(
+            format!("{} {}", theme::ICON_GIT_BRANCH, branch),
+            theme::branch_style(),
+        )]
+    } else {
+        vec![]
+    }
+}
+
+/// Truncate spans to fit within max_width characters.
+fn truncate_spans(spans: &mut Vec<Span<'static>>, max_width: usize) {
+    let mut total = 0;
+    let mut truncate_at = spans.len();
+    for (i, span) in spans.iter().enumerate() {
+        let span_width = span.content.chars().count();
+        if total + span_width > max_width {
+            truncate_at = i;
+            break;
+        }
+        total += span_width;
+    }
+    if truncate_at < spans.len() {
+        let remaining = max_width.saturating_sub(total);
+        if remaining > 0 {
+            let truncated: String = spans[truncate_at].content.chars().take(remaining).collect();
+            let style = spans[truncate_at].style;
+            spans[truncate_at] = Span::styled(truncated, style);
+            spans.truncate(truncate_at + 1);
+        } else {
+            spans.truncate(truncate_at);
+        }
+    }
+}
+
+fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
+    match item {
+        TreeItem::Window {
             window_name,
-            is_last,
             agent_state,
+            pane_current_path,
+            pane_current_command,
             ..
         } => {
-            let connector = if *is_last { " └ " } else { " ├ " };
-            let mut spans = vec![Span::styled(connector.to_string(), theme::dim_style())];
+            let mut spans = Vec::new();
 
-            let label = format!("{}:{}", window_index, window_name);
-            spans.push(Span::styled(label, base_style));
+            let label =
+                if let (Some(cmd), Some(path)) = (pane_current_command, pane_current_path) {
+                    display_label(cmd, path)
+                } else {
+                    window_name.clone()
+                };
+            spans.push(Span::raw(label));
 
-            // Show agent status inline for single-pane windows
             if let Some(agent) = agent_state {
                 append_agent_info(&mut spans, agent);
             }
 
-            Line::from(spans)
+            spans
         }
-        TreeItem::Pane {
-            pane,
-            is_last_window,
-            is_last_pane,
-            ..
-        } => {
-            let prefix = if *is_last_window { "   " } else { " │ " };
-            let connector = if *is_last_pane { "└ " } else { "├ " };
+        TreeItem::Pane { pane, .. } => {
+            let mut spans = vec![Span::styled("  ".to_string(), theme::dim_style())];
 
-            let mut spans = vec![
-                Span::styled(prefix.to_string(), theme::dim_style()),
-                Span::styled(connector.to_string(), theme::dim_style()),
-            ];
-
-            let label = pane.pane_current_command.to_string();
-            spans.push(Span::styled(label, base_style));
+            let label = display_label(&pane.pane_current_command, &pane.pane_current_path);
+            spans.push(Span::raw(label));
 
             if let Some(ref agent) = pane.agent_state {
                 append_agent_info(&mut spans, agent);
             }
 
-            Line::from(spans)
+            spans
         }
+        _ => vec![],
     }
+}
+
+fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState) {
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        theme::status_icon(&agent.state).to_string(),
+        theme::status_style(&agent.state),
+    ));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent::state::AgentStatus;
+    use crate::git::PrInfo;
     use crate::tmux::types::{TmuxPane, TmuxSession, TmuxWindow};
     use std::collections::HashSet;
 
@@ -227,6 +630,19 @@ mod tests {
             pane_current_path: "/home/user".to_string(),
             pane_active: true,
             agent_state: agent,
+            git_info: None,
+        }
+    }
+
+    fn make_pane_with_git(pane_id: &str, command: &str, git_info: GitInfo) -> TmuxPane {
+        TmuxPane {
+            pane_id: pane_id.to_string(),
+            pane_index: 0,
+            pane_current_command: command.to_string(),
+            pane_current_path: "/home/user".to_string(),
+            pane_active: true,
+            agent_state: None,
+            git_info: Some(git_info),
         }
     }
 
@@ -235,17 +651,22 @@ mod tests {
             TmuxSession {
                 session_name: "main".to_string(),
                 session_attached: true,
+                repo_name: Some("nownabe/chikuwa".to_string()),
                 windows: vec![
                     TmuxWindow {
                         window_index: 0,
                         window_name: "claude".to_string(),
                         window_active: true,
-                        panes: vec![make_pane("%0", "node", Some(AgentState {
-                            tmux_pane: "%0".to_string(),
-                            session_id: None,
-                            state: AgentStatus::Running,
-                            updated_at: 100,
-                        }))],
+                        panes: vec![make_pane(
+                            "%0",
+                            "node",
+                            Some(AgentState {
+                                tmux_pane: "%0".to_string(),
+                                session_id: None,
+                                state: AgentStatus::Running,
+                                updated_at: 100,
+                            }),
+                        )],
                     },
                     TmuxWindow {
                         window_index: 1,
@@ -258,6 +679,7 @@ mod tests {
             TmuxSession {
                 session_name: "dev".to_string(),
                 session_attached: false,
+                repo_name: None,
                 windows: vec![TmuxWindow {
                     window_index: 0,
                     window_name: "work".to_string(),
@@ -276,20 +698,23 @@ mod tests {
         let sessions = make_sessions();
         let items = flatten(&sessions, &HashSet::new());
 
-        // main session + 2 windows + dev session + 1 window + 2 panes
         assert_eq!(items.len(), 7);
 
-        // First item is session "main"
-        assert!(matches!(&items[0], TreeItem::Session { name, attached: true, collapsed: false } if name == "main"));
-        // Second is window 0:claude
-        assert!(matches!(&items[1], TreeItem::Window { window_name, .. } if window_name == "claude"));
-        // Third is window 1:zsh
-        assert!(matches!(&items[2], TreeItem::Window { window_name, .. } if window_name == "zsh"));
-        // Fourth is session "dev"
-        assert!(matches!(&items[3], TreeItem::Session { name, attached: false, .. } if name == "dev"));
-        // Fifth is window 0:work
-        assert!(matches!(&items[4], TreeItem::Window { window_name, .. } if window_name == "work"));
-        // Sixth and seventh are panes (multi-pane window)
+        assert!(
+            matches!(&items[0], TreeItem::Session { name, attached: true, collapsed: false, .. } if name == "main")
+        );
+        assert!(
+            matches!(&items[1], TreeItem::Window { window_name, .. } if window_name == "claude")
+        );
+        assert!(
+            matches!(&items[2], TreeItem::Window { window_name, .. } if window_name == "zsh")
+        );
+        assert!(
+            matches!(&items[3], TreeItem::Session { name, attached: false, .. } if name == "dev")
+        );
+        assert!(
+            matches!(&items[4], TreeItem::Window { window_name, .. } if window_name == "work")
+        );
         assert!(matches!(&items[5], TreeItem::Pane { .. }));
         assert!(matches!(&items[6], TreeItem::Pane { .. }));
     }
@@ -302,9 +727,10 @@ mod tests {
 
         let items = flatten(&sessions, &collapsed);
 
-        // main (collapsed) + dev + 1 window + 2 panes = 5
         assert_eq!(items.len(), 5);
-        assert!(matches!(&items[0], TreeItem::Session { name, collapsed: true, .. } if name == "main"));
+        assert!(
+            matches!(&items[0], TreeItem::Session { name, collapsed: true, .. } if name == "main")
+        );
         assert!(matches!(&items[1], TreeItem::Session { name, .. } if name == "dev"));
     }
 
@@ -313,7 +739,6 @@ mod tests {
         let sessions = make_sessions();
         let items = flatten(&sessions, &HashSet::new());
 
-        // Window "claude" has 1 pane with agent, so agent_state should be embedded
         if let TreeItem::Window { agent_state, .. } = &items[1] {
             assert!(agent_state.is_some());
             assert_eq!(agent_state.as_ref().unwrap().state, AgentStatus::Running);
@@ -327,7 +752,6 @@ mod tests {
         let sessions = make_sessions();
         let items = flatten(&sessions, &HashSet::new());
 
-        // Window "work" has 2 panes, agent_state should be None
         if let TreeItem::Window { agent_state, .. } = &items[4] {
             assert!(agent_state.is_none());
         } else {
@@ -341,6 +765,7 @@ mod tests {
             name: "main".to_string(),
             attached: true,
             collapsed: false,
+            repo_name: None,
         };
         assert_eq!(item.tmux_target(), "main");
     }
@@ -351,8 +776,10 @@ mod tests {
             session_name: "main".to_string(),
             window_index: 2,
             window_name: "zsh".to_string(),
-            is_last: false,
             agent_state: None,
+            git_info: None,
+            pane_current_path: None,
+            pane_current_command: None,
         };
         assert_eq!(item.tmux_target(), "main:2");
     }
@@ -363,8 +790,6 @@ mod tests {
             session_name: "dev".to_string(),
             window_index: 1,
             pane: make_pane("%5", "zsh", None),
-            is_last_window: false,
-            is_last_pane: false,
         };
         assert_eq!(item.tmux_target(), "dev:1.0");
     }
@@ -376,25 +801,264 @@ mod tests {
     }
 
     #[test]
-    fn test_flatten_is_last_flags() {
+    fn test_is_shell() {
+        assert!(is_shell("zsh"));
+        assert!(is_shell("bash"));
+        assert!(is_shell("fish"));
+        assert!(is_shell("sh"));
+        assert!(is_shell("dash"));
+        assert!(is_shell("ksh"));
+        assert!(is_shell("csh"));
+        assert!(is_shell("tcsh"));
+        assert!(!is_shell("vim"));
+        assert!(!is_shell("node"));
+        assert!(!is_shell("python"));
+    }
+
+    #[test]
+    fn test_display_label_shell() {
+        assert_eq!(display_label("zsh", "/home/user/projects/myapp"), "myapp");
+        assert_eq!(display_label("bash", "/tmp"), "tmp");
+        assert_eq!(display_label("fish", "/"), "fish");
+    }
+
+    #[test]
+    fn test_display_label_non_shell() {
+        assert_eq!(display_label("vim", "/home/user"), "vim");
+        assert_eq!(display_label("node", "/home/user/project"), "node");
+    }
+
+    #[test]
+    fn test_flatten_single_pane_window_has_path_and_command() {
         let sessions = make_sessions();
         let items = flatten(&sessions, &HashSet::new());
 
-        // Window 0:claude is not last
-        if let TreeItem::Window { is_last, .. } = &items[1] {
-            assert!(!is_last);
-        }
-        // Window 1:zsh is last
-        if let TreeItem::Window { is_last, .. } = &items[2] {
-            assert!(is_last);
+        if let TreeItem::Window {
+            pane_current_path,
+            pane_current_command,
+            ..
+        } = &items[2]
+        {
+            assert_eq!(pane_current_path.as_deref(), Some("/home/user"));
+            assert_eq!(pane_current_command.as_deref(), Some("zsh"));
+        } else {
+            panic!("Expected Window item");
         }
     }
-}
 
-fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState) {
-    spans.push(Span::raw(" "));
-    spans.push(Span::styled(
-        theme::status_icon(&agent.state).to_string(),
-        theme::status_style(&agent.state),
-    ));
+    #[test]
+    fn test_flatten_session_has_repo_name() {
+        let sessions = make_sessions();
+        let items = flatten(&sessions, &HashSet::new());
+
+        if let TreeItem::Session { repo_name, .. } = &items[0] {
+            assert_eq!(repo_name.as_deref(), Some("nownabe/chikuwa"));
+        } else {
+            panic!("Expected Session item");
+        }
+
+        if let TreeItem::Session { repo_name, .. } = &items[3] {
+            assert!(repo_name.is_none());
+        } else {
+            panic!("Expected Session item");
+        }
+    }
+
+    #[test]
+    fn test_item_to_visual_row_collapsed() {
+        let items = vec![
+            TreeItem::Session {
+                name: "a".to_string(),
+                attached: true,
+                collapsed: true,
+                repo_name: None,
+            },
+            TreeItem::Session {
+                name: "b".to_string(),
+                attached: false,
+                collapsed: true,
+                repo_name: None,
+            },
+        ];
+
+        assert_eq!(item_to_visual_row(&items, 0), 0);
+        assert_eq!(item_to_visual_row(&items, 1), 1);
+        assert_eq!(total_visual_rows(&items), 2);
+    }
+
+    #[test]
+    fn test_item_to_visual_row_expanded_no_git() {
+        let sessions = vec![TmuxSession {
+            session_name: "main".to_string(),
+            session_attached: true,
+            repo_name: None,
+            windows: vec![
+                TmuxWindow {
+                    window_index: 0,
+                    window_name: "a".to_string(),
+                    window_active: true,
+                    panes: vec![make_pane("%0", "zsh", None)],
+                },
+                TmuxWindow {
+                    window_index: 1,
+                    window_name: "b".to_string(),
+                    window_active: false,
+                    panes: vec![make_pane("%1", "zsh", None)],
+                },
+            ],
+        }];
+        let items = flatten(&sessions, &HashSet::new());
+
+        // No git info: top_border(0), window_a(1), window_b(2), bottom_border(3)
+        assert_eq!(item_to_visual_row(&items, 0), 0);
+        assert_eq!(item_to_visual_row(&items, 1), 1);
+        assert_eq!(item_to_visual_row(&items, 2), 2);
+        assert_eq!(total_visual_rows(&items), 4);
+    }
+
+    #[test]
+    fn test_item_to_visual_row_with_git() {
+        let sessions = vec![TmuxSession {
+            session_name: "main".to_string(),
+            session_attached: true,
+            repo_name: None,
+            windows: vec![
+                TmuxWindow {
+                    window_index: 0,
+                    window_name: "claude".to_string(),
+                    window_active: true,
+                    panes: vec![make_pane_with_git(
+                        "%0",
+                        "node",
+                        GitInfo {
+                            branch: Some("main".to_string()),
+                            pr: None,
+                            repo_name: None,
+                        },
+                    )],
+                },
+                TmuxWindow {
+                    window_index: 1,
+                    window_name: "zsh".to_string(),
+                    window_active: false,
+                    panes: vec![make_pane("%1", "zsh", None)],
+                },
+            ],
+        }];
+        let items = flatten(&sessions, &HashSet::new());
+
+        // top_border(0), window_claude(1), git_sub(2), window_zsh(3), bottom_border(4)
+        assert_eq!(item_to_visual_row(&items, 0), 0); // Session
+        assert_eq!(item_to_visual_row(&items, 1), 1); // Window claude
+        assert_eq!(item_to_visual_row(&items, 2), 3); // Window zsh (after git sub-line)
+        assert_eq!(total_visual_rows(&items), 5);
+    }
+
+    #[test]
+    fn test_item_to_visual_row_mixed() {
+        let items = vec![
+            TreeItem::Session {
+                name: "collapsed".to_string(),
+                attached: false,
+                collapsed: true,
+                repo_name: None,
+            },
+            TreeItem::Session {
+                name: "expanded".to_string(),
+                attached: true,
+                collapsed: false,
+                repo_name: None,
+            },
+            TreeItem::Window {
+                session_name: "expanded".to_string(),
+                window_index: 0,
+                window_name: "w".to_string(),
+                agent_state: None,
+                git_info: None,
+                pane_current_path: None,
+                pane_current_command: None,
+            },
+        ];
+
+        assert_eq!(item_to_visual_row(&items, 0), 0);
+        assert_eq!(item_to_visual_row(&items, 1), 1);
+        assert_eq!(item_to_visual_row(&items, 2), 2);
+        assert_eq!(total_visual_rows(&items), 4);
+    }
+
+    #[test]
+    fn test_git_display_spans_pr_priority() {
+        let gi = GitInfo {
+            branch: Some("feature/x".to_string()),
+            pr: Some(PrInfo {
+                number: 42,
+                title: "Fix bug".to_string(),
+            }),
+            repo_name: None,
+        };
+        let spans = git_display_spans(&gi);
+        assert_eq!(spans.len(), 1);
+        assert!(spans[0].content.contains("#42"));
+        assert!(!spans[0].content.contains("feature/x"));
+    }
+
+    #[test]
+    fn test_git_display_spans_branch_only() {
+        let gi = GitInfo {
+            branch: Some("main".to_string()),
+            pr: None,
+            repo_name: None,
+        };
+        let spans = git_display_spans(&gi);
+        assert_eq!(spans.len(), 1);
+        assert!(spans[0].content.contains("main"));
+    }
+
+    #[test]
+    fn test_git_display_spans_empty() {
+        let gi = GitInfo {
+            branch: None,
+            pr: None,
+            repo_name: None,
+        };
+        let spans = git_display_spans(&gi);
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn test_item_has_git_info() {
+        let with_branch = TreeItem::Window {
+            session_name: "s".to_string(),
+            window_index: 0,
+            window_name: "w".to_string(),
+            agent_state: None,
+            git_info: Some(GitInfo {
+                branch: Some("main".to_string()),
+                pr: None,
+                repo_name: None,
+            }),
+            pane_current_path: None,
+            pane_current_command: None,
+        };
+        assert!(item_has_git_info(&with_branch));
+
+        let without = TreeItem::Window {
+            session_name: "s".to_string(),
+            window_index: 0,
+            window_name: "w".to_string(),
+            agent_state: None,
+            git_info: None,
+            pane_current_path: None,
+            pane_current_command: None,
+        };
+        assert!(!item_has_git_info(&without));
+
+        let session = TreeItem::Session {
+            name: "s".to_string(),
+            attached: true,
+            collapsed: false,
+            repo_name: None,
+        };
+        assert!(!item_has_git_info(&session));
+    }
 }

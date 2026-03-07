@@ -1,6 +1,7 @@
 mod agent;
 mod app;
 mod event;
+mod git;
 mod hook;
 mod ipc;
 mod tmux;

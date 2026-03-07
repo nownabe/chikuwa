@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::agent::state::AgentState;
+use crate::git::GitInfo;
 
 #[derive(Debug, Clone)]
 pub struct TmuxPane {
@@ -10,6 +11,7 @@ pub struct TmuxPane {
     pub pane_current_path: String,
     pub pane_active: bool,
     pub agent_state: Option<AgentState>,
+    pub git_info: Option<GitInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,4 +27,5 @@ pub struct TmuxSession {
     pub session_name: String,
     pub session_attached: bool,
     pub windows: Vec<TmuxWindow>,
+    pub repo_name: Option<String>,
 }

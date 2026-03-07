@@ -6,6 +6,7 @@ use ratatui::Frame;
 
 use crate::agent::state::AgentStatus;
 use crate::tmux::types::TmuxSession;
+use crate::ui::theme;
 
 pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
     let mut total_agents = 0u32;
@@ -32,31 +33,31 @@ pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
     let mut spans = vec![
         Span::styled(
             format!(" {} agents", total_agents),
-            Style::default().fg(Color::White),
+            Style::default().fg(theme::COLOR_WHITE),
         ),
         Span::raw(" │ "),
     ];
 
     if running > 0 {
         spans.push(Span::styled(
-            format!("{} run", running),
-            Style::default().fg(Color::Yellow),
+            format!("{} {} run", theme::ICON_RUNNING, running),
+            Style::default().fg(theme::status_color(&AgentStatus::Running)),
         ));
         spans.push(Span::raw(" "));
     }
 
     if waiting > 0 {
         spans.push(Span::styled(
-            format!("{} wait", waiting),
-            Style::default().fg(Color::Green),
+            format!("{} {} wait", theme::ICON_WAITING, waiting),
+            Style::default().fg(theme::status_color(&AgentStatus::Waiting)),
         ));
         spans.push(Span::raw(" "));
     }
 
     if permission > 0 {
         spans.push(Span::styled(
-            format!("{} perm", permission),
-            Style::default().fg(Color::Magenta),
+            format!("{} {} perm", theme::ICON_PERMISSION, permission),
+            Style::default().fg(theme::status_color(&AgentStatus::Permission)),
         ));
     }
 

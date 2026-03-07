@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -15,6 +16,7 @@ use tokio::sync::mpsc;
 
 use crate::agent::state::AgentState;
 use crate::event::{self, Action, AppEvent};
+use crate::git::GitInfoCache;
 use crate::ipc;
 use crate::tmux::{client as tmux_client, types::TmuxSession};
 use crate::ui::{status_bar, tree};
@@ -27,6 +29,7 @@ pub struct App {
     collapsed: HashSet<String>,
     should_quit: bool,
     agent_states: HashMap<String, AgentState>,
+    git_cache: GitInfoCache,
 }
 
 impl App {
@@ -39,6 +42,7 @@ impl App {
             collapsed: HashSet::new(),
             should_quit: false,
             agent_states: HashMap::new(),
+            git_cache: GitInfoCache::new(),
         }
     }
 
@@ -47,6 +51,7 @@ impl App {
         match tmux_client::fetch_tree(&self.agent_states).await {
             Ok(sessions) => {
                 self.sessions = sessions;
+                self.merge_git_info().await;
                 self.rebuild_tree();
             }
             Err(_) => {
@@ -58,11 +63,59 @@ impl App {
         Ok(())
     }
 
+    /// Fetch git info for all unique pane paths and merge into panes.
+    async fn merge_git_info(&mut self) {
+        // Collect unique paths
+        let mut active_paths = HashSet::new();
+        for session in &self.sessions {
+            for window in &session.windows {
+                for pane in &window.panes {
+                    active_paths.insert(PathBuf::from(&pane.pane_current_path));
+                }
+            }
+        }
+
+        // GC stale cache entries
+        self.git_cache.retain_paths(&active_paths);
+
+        // Fetch git info for each unique path
+        let mut path_info: HashMap<String, crate::git::GitInfo> = HashMap::new();
+        for path in &active_paths {
+            if let Some(path_str) = path.to_str() {
+                if let Some(info) = self.git_cache.get(path_str).await {
+                    path_info.insert(path_str.to_string(), info);
+                }
+            }
+        }
+
+        // Merge into panes and derive session repo_name
+        for session in &mut self.sessions {
+            for window in &mut session.windows {
+                for pane in &mut window.panes {
+                    pane.git_info = path_info.get(&pane.pane_current_path).cloned();
+                }
+            }
+            // Derive repo_name from the first pane that has one
+            session.repo_name = session
+                .windows
+                .iter()
+                .flat_map(|w| w.panes.iter())
+                .find_map(|p| p.git_info.as_ref().and_then(|gi| gi.repo_name.clone()));
+        }
+    }
+
     fn rebuild_tree(&mut self) {
         self.tree_items = tree::flatten(&self.sessions, &self.collapsed);
         // Clamp selected index
         if !self.tree_items.is_empty() && self.selected >= self.tree_items.len() {
             self.selected = self.tree_items.len() - 1;
+        }
+        // Ensure selected is not a Session item
+        self.snap_to_non_session();
+        // Clamp scroll offset to valid visual row range
+        let total_visual = tree::total_visual_rows(&self.tree_items);
+        if total_visual > 0 && self.scroll_offset >= total_visual {
+            self.scroll_offset = total_visual - 1;
         }
     }
 
@@ -79,36 +132,82 @@ impl App {
     }
 
     fn move_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
-            self.ensure_visible();
+        let mut idx = self.selected;
+        while idx > 0 {
+            idx -= 1;
+            if !matches!(&self.tree_items[idx], tree::TreeItem::Session { .. }) {
+                self.selected = idx;
+                self.ensure_visible();
+                return;
+            }
         }
     }
 
     fn move_down(&mut self) {
-        if !self.tree_items.is_empty() && self.selected < self.tree_items.len() - 1 {
-            self.selected += 1;
-            self.ensure_visible();
+        let mut idx = self.selected;
+        while idx < self.tree_items.len().saturating_sub(1) {
+            idx += 1;
+            if !matches!(&self.tree_items[idx], tree::TreeItem::Session { .. }) {
+                self.selected = idx;
+                self.ensure_visible();
+                return;
+            }
         }
     }
 
     fn move_top(&mut self) {
-        self.selected = 0;
+        if let Some(idx) = self
+            .tree_items
+            .iter()
+            .position(|item| !matches!(item, tree::TreeItem::Session { .. }))
+        {
+            self.selected = idx;
+        }
         self.scroll_offset = 0;
     }
 
     fn move_bottom(&mut self) {
-        if !self.tree_items.is_empty() {
-            self.selected = self.tree_items.len() - 1;
-            // scroll_offset will be adjusted in ensure_visible during render
+        if let Some(idx) = self
+            .tree_items
+            .iter()
+            .rposition(|item| !matches!(item, tree::TreeItem::Session { .. }))
+        {
+            self.selected = idx;
+        }
+    }
+
+    /// Snap selected to a non-Session item if it currently points to one.
+    fn snap_to_non_session(&mut self) {
+        if self.tree_items.is_empty() {
+            return;
+        }
+        if !matches!(
+            &self.tree_items[self.selected],
+            tree::TreeItem::Session { .. }
+        ) {
+            return;
+        }
+        // Try forward first, then backward
+        if let Some(offset) = self.tree_items[self.selected..]
+            .iter()
+            .position(|item| !matches!(item, tree::TreeItem::Session { .. }))
+        {
+            self.selected += offset;
+        } else if let Some(idx) = self
+            .tree_items
+            .iter()
+            .position(|item| !matches!(item, tree::TreeItem::Session { .. }))
+        {
+            self.selected = idx;
         }
     }
 
     fn ensure_visible(&mut self) {
-        if self.selected < self.scroll_offset {
-            self.scroll_offset = self.selected;
+        let visual = tree::item_to_visual_row(&self.tree_items, self.selected);
+        if visual < self.scroll_offset {
+            self.scroll_offset = visual;
         }
-        // The visible height will be applied during rendering
+        // Upper bound adjusted during rendering
     }
 
     async fn handle_select(&mut self) -> Result<()> {
@@ -199,10 +298,15 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                 .constraints([Constraint::Min(3), Constraint::Length(2)])
                 .split(size);
 
-            // Adjust scroll for visible area
-            let visible_height = chunks[0].height.saturating_sub(2) as usize; // account for border
-            if app.selected >= app.scroll_offset + visible_height {
-                app.scroll_offset = app.selected.saturating_sub(visible_height - 1);
+            // Adjust scroll for visible area (visual rows, no outer border)
+            let visible_height = chunks[0].height as usize;
+            let selected_visual =
+                tree::item_to_visual_row(&app.tree_items, app.selected);
+            if selected_visual >= app.scroll_offset + visible_height {
+                app.scroll_offset = selected_visual.saturating_sub(visible_height - 1);
+            }
+            if selected_visual < app.scroll_offset {
+                app.scroll_offset = selected_visual;
             }
 
             // Render tree with inline agent status on single-pane windows

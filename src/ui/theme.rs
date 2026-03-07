@@ -1,13 +1,21 @@
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 
 use crate::agent::state::AgentStatus;
 
-pub const ICON_RUNNING: &str = "✦";
-pub const ICON_WAITING: &str = "❯";
-pub const ICON_PERMISSION: &str = "⚠";
-pub const ICON_STARTED: &str = "⏸";
-pub const ICON_SESSION: &str = "📂";
-pub const ICON_ERROR: &str = "✗";
+// 3-color palette
+pub const COLOR_WHITE: Color = Color::Rgb(0xff, 0xff, 0xff);
+pub const COLOR_PURPLE: Color = Color::Rgb(0x92, 0x93, 0xfe);
+pub const COLOR_LIGHT_PURPLE: Color = Color::Rgb(0xb6, 0xb9, 0xff);
+
+// NerdFont icons
+pub const ICON_CARET_RIGHT: &str = "\u{f0da}"; //
+pub const ICON_FOLDER: &str = "\u{f07b}"; //
+pub const ICON_GIT_BRANCH: &str = "\u{e725}"; //
+pub const ICON_PR: &str = "\u{f407}"; //
+pub const ICON_RUNNING: &str = "\u{f0e7}"; //
+pub const ICON_WAITING: &str = "\u{f28b}"; //
+pub const ICON_PERMISSION: &str = "\u{f071}"; //
+pub const ICON_STARTED: &str = "\u{f04b}"; //
 
 pub fn status_icon(status: &AgentStatus) -> &'static str {
     match status {
@@ -15,17 +23,16 @@ pub fn status_icon(status: &AgentStatus) -> &'static str {
         AgentStatus::Waiting => ICON_WAITING,
         AgentStatus::Permission => ICON_PERMISSION,
         AgentStatus::Started => ICON_STARTED,
-        AgentStatus::Ended => ICON_ERROR,
+        AgentStatus::Ended => ICON_STARTED,
     }
 }
 
 pub fn status_color(status: &AgentStatus) -> Color {
     match status {
-        AgentStatus::Running => Color::Yellow,
-        AgentStatus::Waiting => Color::Green,
-        AgentStatus::Permission => Color::Magenta,
-        AgentStatus::Started => Color::DarkGray,
-        AgentStatus::Ended => Color::Red,
+        AgentStatus::Running => COLOR_WHITE,
+        AgentStatus::Permission => COLOR_PURPLE,
+        AgentStatus::Waiting => COLOR_LIGHT_PURPLE,
+        AgentStatus::Started | AgentStatus::Ended => Color::DarkGray,
     }
 }
 
@@ -33,28 +40,14 @@ pub fn status_style(status: &AgentStatus) -> Style {
     Style::default().fg(status_color(status))
 }
 
-pub fn selected_style() -> Style {
-    Style::default()
-        .bg(Color::DarkGray)
-        .add_modifier(Modifier::BOLD)
-}
-
-pub fn header_style() -> Style {
-    Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD)
-}
-
-pub fn session_style(attached: bool) -> Style {
-    if attached {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    }
-}
-
 pub fn dim_style() -> Style {
     Style::default().fg(Color::DarkGray)
+}
+
+pub fn branch_style() -> Style {
+    Style::default().fg(COLOR_LIGHT_PURPLE)
+}
+
+pub fn pr_style() -> Style {
+    Style::default().fg(COLOR_PURPLE)
 }

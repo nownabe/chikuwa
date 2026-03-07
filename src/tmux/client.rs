@@ -64,6 +64,7 @@ fn build_tree(raw: &str, agent_states: &HashMap<String, AgentState>) -> Vec<Tmux
             pane_current_path,
             pane_active,
             agent_state,
+            git_info: None,
         };
 
         let session_idx = if let Some(&idx) = session_map.get(&session_name) {
@@ -74,6 +75,7 @@ fn build_tree(raw: &str, agent_states: &HashMap<String, AgentState>) -> Vec<Tmux
                 session_name: session_name.clone(),
                 session_attached,
                 windows: Vec::new(),
+                repo_name: None,
             });
             session_map.insert(session_name, idx);
             idx
