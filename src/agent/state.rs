@@ -32,14 +32,6 @@ pub struct AgentState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     pub state: AgentStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_pct: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cost_usd: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
     pub updated_at: u64,
 }
 
@@ -49,10 +41,6 @@ impl AgentState {
             tmux_pane,
             session_id: None,
             state,
-            model: None,
-            context_pct: None,
-            cost_usd: None,
-            project: None,
             updated_at: now(),
         }
     }
@@ -206,10 +194,6 @@ mod tests {
         assert_eq!(state.tmux_pane, "%5");
         assert_eq!(state.state, AgentStatus::Running);
         assert!(state.session_id.is_none());
-        assert!(state.model.is_none());
-        assert!(state.context_pct.is_none());
-        assert!(state.cost_usd.is_none());
-        assert!(state.project.is_none());
         assert!(state.updated_at > 0);
     }
 
@@ -219,10 +203,6 @@ mod tests {
             tmux_pane: "%5".to_string(),
             session_id: Some("abc123".to_string()),
             state: AgentStatus::Running,
-            model: Some("Opus 4.6".to_string()),
-            context_pct: Some(42),
-            cost_usd: Some(1.23),
-            project: Some("/home/user/project".to_string()),
             updated_at: 1234567890,
         };
 
@@ -232,10 +212,6 @@ mod tests {
         assert_eq!(parsed.tmux_pane, "%5");
         assert_eq!(parsed.session_id, Some("abc123".to_string()));
         assert_eq!(parsed.state, AgentStatus::Running);
-        assert_eq!(parsed.model, Some("Opus 4.6".to_string()));
-        assert_eq!(parsed.context_pct, Some(42));
-        assert_eq!(parsed.cost_usd, Some(1.23));
-        assert_eq!(parsed.project, Some("/home/user/project".to_string()));
         assert_eq!(parsed.updated_at, 1234567890);
     }
 
@@ -246,10 +222,6 @@ mod tests {
 
         // Optional None fields should be omitted
         assert!(!json.contains("session_id"));
-        assert!(!json.contains("model"));
-        assert!(!json.contains("context_pct"));
-        assert!(!json.contains("cost_usd"));
-        assert!(!json.contains("project"));
     }
 
     #[test]
@@ -259,13 +231,11 @@ mod tests {
         assert_eq!(state.tmux_pane, "%0");
         assert_eq!(state.state, AgentStatus::Waiting);
         assert!(state.session_id.is_none());
-        assert!(state.model.is_none());
     }
 
     #[test]
     fn test_state_file_read_write_remove() {
         let dir = tempfile::tempdir().unwrap();
-        // Override state_dir by writing/reading directly with paths
         let pane_id = "%test_rw";
         let path = dir.path().join(format!("{}.json", pane_id));
 
@@ -273,10 +243,6 @@ mod tests {
             tmux_pane: pane_id.to_string(),
             session_id: Some("sess1".to_string()),
             state: AgentStatus::Running,
-            model: None,
-            context_pct: None,
-            cost_usd: None,
-            project: None,
             updated_at: 999,
         };
 

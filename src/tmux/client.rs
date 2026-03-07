@@ -20,7 +20,7 @@ async fn list_panes_all() -> Result<String> {
             "list-panes",
             "-a",
             "-F",
-            "#{session_name}\t#{session_attached}\t#{window_index}\t#{window_name}\t#{window_active}\t#{pane_id}\t#{pane_index}\t#{pane_current_command}\t#{pane_active}",
+            "#{session_name}\t#{session_attached}\t#{window_index}\t#{window_name}\t#{window_active}\t#{pane_id}\t#{pane_index}\t#{pane_current_command}\t#{pane_active}\t#{pane_current_path}",
         ])
         .output()
         .await
@@ -41,7 +41,7 @@ fn build_tree(raw: &str, agent_states: &HashMap<String, AgentState>) -> Vec<Tmux
 
     for line in raw.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
-        if fields.len() < 9 {
+        if fields.len() < 10 {
             continue;
         }
 
@@ -54,6 +54,7 @@ fn build_tree(raw: &str, agent_states: &HashMap<String, AgentState>) -> Vec<Tmux
         let pane_index: u32 = fields[6].parse().unwrap_or(0);
         let pane_current_command = fields[7].to_string();
         let pane_active = fields[8] == "1";
+        let pane_current_path = fields[9].to_string();
 
         let agent_state = agent_states.get(&pane_id).cloned();
 
@@ -61,6 +62,7 @@ fn build_tree(raw: &str, agent_states: &HashMap<String, AgentState>) -> Vec<Tmux
             pane_id,
             pane_index,
             pane_current_command,
+            pane_current_path,
             pane_active,
             agent_state,
         };
@@ -139,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_build_tree_single_session_single_window() {
-        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n";
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\t/home/user\n";
         let tree = build_tree(raw, &HashMap::new());
 
         assert_eq!(tree.len(), 1);
@@ -149,12 +151,13 @@ mod tests {
         assert_eq!(tree[0].windows[0].window_name, "zsh");
         assert_eq!(tree[0].windows[0].panes.len(), 1);
         assert_eq!(tree[0].windows[0].panes[0].pane_current_command, "bash");
+        assert_eq!(tree[0].windows[0].panes[0].pane_current_path, "/home/user");
     }
 
     #[test]
     fn test_build_tree_multiple_sessions() {
-        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n\
-                    dev\t0\t0\tvim\t1\t%1\t0\tvim\t1\n";
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\t/home\n\
+                    dev\t0\t0\tvim\t1\t%1\t0\tvim\t1\t/tmp\n";
         let tree = build_tree(raw, &HashMap::new());
 
         assert_eq!(tree.len(), 2);
@@ -166,8 +169,8 @@ mod tests {
 
     #[test]
     fn test_build_tree_multiple_windows() {
-        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n\
-                    main\t1\t1\tvim\t0\t%1\t0\tvim\t1\n";
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\t/home\n\
+                    main\t1\t1\tvim\t0\t%1\t0\tvim\t1\t/tmp\n";
         let tree = build_tree(raw, &HashMap::new());
 
         assert_eq!(tree.len(), 1);
@@ -178,8 +181,8 @@ mod tests {
 
     #[test]
     fn test_build_tree_multiple_panes() {
-        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n\
-                    main\t1\t0\tzsh\t1\t%1\t1\tvim\t0\n";
+        let raw = "main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\t/home\n\
+                    main\t1\t0\tzsh\t1\t%1\t1\tvim\t0\t/tmp\n";
         let tree = build_tree(raw, &HashMap::new());
 
         assert_eq!(tree.len(), 1);
@@ -191,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_build_tree_with_agent_state() {
-        let raw = "main\t1\t0\tclaude\t1\t%0\t0\tnode\t1\n";
+        let raw = "main\t1\t0\tclaude\t1\t%0\t0\tnode\t1\t/project\n";
         let mut agents = HashMap::new();
         agents.insert(
             "%0".to_string(),
@@ -199,10 +202,6 @@ mod tests {
                 tmux_pane: "%0".to_string(),
                 session_id: Some("sess1".to_string()),
                 state: AgentStatus::Running,
-                model: Some("Opus 4.6".to_string()),
-                context_pct: Some(19),
-                cost_usd: Some(0.42),
-                project: None,
                 updated_at: 100,
             },
         );
@@ -210,15 +209,14 @@ mod tests {
         let tree = build_tree(raw, &agents);
         let pane = &tree[0].windows[0].panes[0];
         assert!(pane.agent_state.is_some());
-        let agent = pane.agent_state.as_ref().unwrap();
-        assert_eq!(agent.state, AgentStatus::Running);
-        assert_eq!(agent.model, Some("Opus 4.6".to_string()));
+        assert_eq!(pane.agent_state.as_ref().unwrap().state, AgentStatus::Running);
+        assert_eq!(pane.pane_current_path, "/project");
     }
 
     #[test]
     fn test_build_tree_skips_short_lines() {
         let raw = "bad\tline\n\
-                    main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\n";
+                    main\t1\t0\tzsh\t1\t%0\t0\tbash\t1\t/home\n";
         let tree = build_tree(raw, &HashMap::new());
         assert_eq!(tree.len(), 1);
     }

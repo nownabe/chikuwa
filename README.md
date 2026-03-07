@@ -83,10 +83,6 @@ Add the following to `~/.claude/settings.json`:
 }
 ```
 
-### Statusline Integration
-
-Use `chikuwa hook statusline` to write statusline metadata (model name, context usage, cost, etc.) to state files.
-
 ## Development
 
 ```sh

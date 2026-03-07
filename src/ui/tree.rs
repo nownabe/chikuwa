@@ -224,6 +224,7 @@ mod tests {
             pane_id: pane_id.to_string(),
             pane_index: 0,
             pane_current_command: command.to_string(),
+            pane_current_path: "/home/user".to_string(),
             pane_active: true,
             agent_state: agent,
         }
@@ -243,10 +244,6 @@ mod tests {
                             tmux_pane: "%0".to_string(),
                             session_id: None,
                             state: AgentStatus::Running,
-                            model: None,
-                            context_pct: None,
-                            cost_usd: None,
-                            project: None,
                             updated_at: 100,
                         }))],
                     },
@@ -400,13 +397,4 @@ fn append_agent_info(spans: &mut Vec<Span<'static>>, agent: &AgentState) {
         theme::status_icon(&agent.state).to_string(),
         theme::status_style(&agent.state),
     ));
-    if let Some(cost) = agent.cost_usd {
-        spans.push(Span::styled(
-            format!(" ${:.2}", cost),
-            theme::dim_style(),
-        ));
-    }
-    if let Some(pct) = agent.context_pct {
-        spans.push(Span::styled(format!(" {}%", pct), theme::dim_style()));
-    }
 }
