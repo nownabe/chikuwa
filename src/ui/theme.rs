@@ -44,10 +44,6 @@ pub fn status_style(status: &AgentStatus) -> Style {
     Style::default().fg(status_color(status))
 }
 
-pub fn dim_style() -> Style {
-    Style::default().fg(Color::DarkGray)
-}
-
 pub fn branch_style() -> Style {
     Style::default().fg(COLOR_LIGHT_PURPLE)
 }

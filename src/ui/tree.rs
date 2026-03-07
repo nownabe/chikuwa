@@ -355,11 +355,21 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize) -> Vec<Li
     lines
 }
 
-fn session_style(attached: bool) -> Style {
+/// Style for session name text.
+fn session_name_style(attached: bool) -> Style {
     if attached {
         Style::default()
             .fg(theme::COLOR_WHITE)
             .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::COLOR_PURPLE)
+    }
+}
+
+/// Style for session borders and repo name.
+fn session_border_style(attached: bool) -> Style {
+    if attached {
+        theme::branch_style()
     } else {
         Style::default().fg(theme::COLOR_PURPLE)
     }
@@ -371,7 +381,7 @@ fn render_collapsed_session(
     repo_name: Option<&str>,
     selected: bool,
 ) -> Line<'static> {
-    let style = session_style(attached);
+    let name_style = session_name_style(attached);
 
     let mut spans = vec![Span::styled(
         format!(
@@ -380,11 +390,11 @@ fn render_collapsed_session(
             theme::ICON_FOLDER,
             name,
         ),
-        style,
+        name_style,
     )];
 
     if let Some(repo) = repo_name {
-        spans.push(Span::styled(format!(" \u{2500}\u{2500} {}", repo), style));
+        spans.push(Span::styled(format!(" \u{2500}\u{2500} {}", repo), name_style));
     }
 
     let mut line = Line::from(spans);
@@ -413,19 +423,20 @@ fn render_session_top_border(
     let fill_count = (width as usize).saturating_sub(2 + left_width + right_width);
     let fill = "\u{2500}".repeat(fill_count);
 
-    let style = session_style(attached);
+    let name_style = session_name_style(attached);
+    let border_style = session_border_style(attached);
 
     let mut spans = vec![
-        Span::styled("\u{250c}", style),
-        Span::styled(left_text, style),
-        Span::styled(fill, style),
+        Span::styled("\u{250c}", border_style),
+        Span::styled(left_text, name_style),
+        Span::styled(fill, border_style),
     ];
 
     if !right_text.is_empty() {
-        spans.push(Span::styled(right_text, style));
+        spans.push(Span::styled(right_text, name_style));
     }
 
-    spans.push(Span::styled("\u{2510}", style));
+    spans.push(Span::styled("\u{2510}", border_style));
 
     let mut line = Line::from(spans);
     if selected {
@@ -437,7 +448,7 @@ fn render_session_top_border(
 }
 
 fn render_session_bottom_border(width: u16, attached: bool) -> Line<'static> {
-    let style = session_style(attached);
+    let style = session_border_style(attached);
     let fill_count = (width as usize).saturating_sub(2);
     let fill = "\u{2500}".repeat(fill_count);
     Line::from(vec![
@@ -453,9 +464,9 @@ fn render_bordered_item(
     selected: bool,
     session_attached: bool,
 ) -> Line<'static> {
-    let border_style = session_style(session_attached);
+    let border_style = session_border_style(session_attached);
     let content_width = (width as usize).saturating_sub(4); // "│ " + content + " │"
-    let mut content_spans = render_content_spans(item);
+    let mut content_spans = render_content_spans(item, session_attached);
     truncate_spans(&mut content_spans, content_width);
 
     let content_display_width: usize =
@@ -512,7 +523,7 @@ fn render_bordered_git_sub_line(
     }
 
     let content_width = (width as usize).saturating_sub(4);
-    let mut inner_spans = vec![Span::styled(prefix.to_string(), theme::dim_style())];
+    let mut inner_spans = vec![Span::styled(prefix.to_string(), Style::default().fg(theme::COLOR_PURPLE))];
     inner_spans.extend(git_spans);
     truncate_spans(&mut inner_spans, content_width);
 
@@ -525,7 +536,7 @@ fn render_bordered_git_sub_line(
         }
     }
 
-    let border_style = session_style(session_attached);
+    let border_style = session_border_style(session_attached);
     let mut spans = vec![Span::styled("\u{2502} ", border_style)];
     spans.extend(inner_spans);
     if padding_len > 0 {
@@ -543,15 +554,16 @@ fn render_bordered_git_sub_line(
 
 /// Build git display spans: PR takes priority over branch.
 fn git_display_spans(gi: &GitInfo) -> Vec<Span<'static>> {
+    let git_style = Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a));
     if let Some(ref pr) = gi.pr {
         vec![Span::styled(
             format!("{} #{} {}", theme::ICON_PR, pr.number, pr.title),
-            theme::branch_style(),
+            git_style,
         )]
     } else if let Some(ref branch) = gi.branch {
         vec![Span::styled(
             format!("{} {}", theme::ICON_GIT_BRANCH, branch),
-            theme::branch_style(),
+            git_style,
         )]
     } else {
         vec![]
@@ -607,7 +619,8 @@ fn item_icon(
     theme::ICON_TERMINAL
 }
 
-fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
+fn render_content_spans(item: &TreeItem, session_attached: bool) -> Vec<Span<'static>> {
+    let icon_style = session_border_style(session_attached);
     match item {
         TreeItem::Window {
             window_name,
@@ -624,7 +637,7 @@ fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
                 pane_current_command.as_deref(),
                 *has_multiple_panes,
             );
-            spans.push(Span::raw(format!("{} ", icon)));
+            spans.push(Span::styled(format!("{} ", icon), icon_style));
 
             if !*has_multiple_panes {
                 let label =
@@ -649,8 +662,8 @@ fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
                 false,
             );
             let mut spans = vec![
-                Span::styled("  ".to_string(), theme::dim_style()),
-                Span::raw(format!("{} ", icon)),
+                Span::styled("  ".to_string(), icon_style),
+                Span::styled(format!("{} ", icon), icon_style),
             ];
 
             let label = display_label(&pane.pane_current_command, &pane.pane_current_path);
