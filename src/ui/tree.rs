@@ -628,10 +628,10 @@ fn render_content_spans(item: &TreeItem) -> Vec<Span<'static>> {
                 Some(&pane.pane_current_command),
                 false,
             );
-            let mut spans = vec![Span::styled(
-                format!("  {} ", icon),
-                theme::dim_style(),
-            )];
+            let mut spans = vec![
+                Span::styled("  ".to_string(), theme::dim_style()),
+                Span::raw(format!("{} ", icon)),
+            ];
 
             let label = display_label(&pane.pane_current_command, &pane.pane_current_path);
             spans.push(Span::raw(label));
