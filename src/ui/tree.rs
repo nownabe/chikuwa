@@ -347,7 +347,6 @@ fn render_collapsed_session(
     repo_name: Option<&str>,
     selected: bool,
 ) -> Line<'static> {
-    let marker = if attached { " *" } else { "" };
     let style = if attached {
         Style::default()
             .fg(theme::COLOR_WHITE)
@@ -358,11 +357,10 @@ fn render_collapsed_session(
 
     let mut spans = vec![Span::styled(
         format!(
-            "{} {} {}{}",
+            "{} {} {}",
             theme::ICON_CARET_RIGHT,
             theme::ICON_FOLDER,
             name,
-            marker
         ),
         style,
     )];
@@ -387,8 +385,7 @@ fn render_session_top_border(
     width: u16,
     selected: bool,
 ) -> Line<'static> {
-    let marker = if attached { " *" } else { "" };
-    let left_text = format!(" {}{} ", name, marker);
+    let left_text = format!(" {} ", name);
     let right_text = repo_name
         .map(|r| format!(" {} ", r))
         .unwrap_or_default();
