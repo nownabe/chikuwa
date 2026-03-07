@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::agent::state::AgentState;
+use crate::agent::state::{AgentState, AgentStatus};
 use crate::git::GitInfo;
 use crate::tmux::types::{TmuxPane, TmuxSession};
 use crate::ui::theme;
@@ -646,7 +646,20 @@ fn render_content_spans(item: &TreeItem, session_attached: bool) -> Vec<Span<'st
                     } else {
                         window_name.clone()
                     };
-                spans.push(Span::raw(label));
+                let needs_attention = matches!(
+                    agent_state.as_ref().map(|a| &a.state),
+                    Some(AgentStatus::Permission)
+                );
+                if needs_attention {
+                    spans.push(Span::styled(
+                        label,
+                        Style::default()
+                            .fg(theme::COLOR_WHITE)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    spans.push(Span::raw(label));
+                }
             }
 
             if let Some(agent) = agent_state {
@@ -667,7 +680,20 @@ fn render_content_spans(item: &TreeItem, session_attached: bool) -> Vec<Span<'st
             ];
 
             let label = display_label(&pane.pane_current_command, &pane.pane_current_path);
-            spans.push(Span::raw(label));
+            let needs_attention = matches!(
+                pane.agent_state.as_ref().map(|a| &a.state),
+                Some(AgentStatus::Permission)
+            );
+            if needs_attention {
+                spans.push(Span::styled(
+                    label,
+                    Style::default()
+                        .fg(theme::COLOR_WHITE)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                spans.push(Span::raw(label));
+            }
 
             if let Some(ref agent) = pane.agent_state {
                 append_agent_info(&mut spans, agent);
