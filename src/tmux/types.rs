@@ -29,4 +29,5 @@ pub struct TmuxSession {
     pub session_attached: bool,
     pub windows: Vec<TmuxWindow>,
     pub repo_name: Option<String>,
+    pub toplevel: Option<String>,
 }

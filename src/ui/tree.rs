@@ -34,11 +34,15 @@ pub enum TreeItem {
         pane_title: Option<String>,
         /// Whether this window has more than one pane.
         has_multiple_panes: bool,
+        /// Session-level git toplevel, for deciding relative vs absolute path.
+        session_toplevel: Option<String>,
     },
     Pane {
         session_name: String,
         window_index: u32,
         pane: TmuxPane,
+        /// Session-level git toplevel, for deciding relative vs absolute path.
+        session_toplevel: Option<String>,
     },
 }
 
@@ -241,6 +245,7 @@ pub fn flatten(
                 pane_current_command,
                 pane_title,
                 has_multiple_panes: window.panes.len() > 1,
+                session_toplevel: session.toplevel.clone(),
             });
 
             // Only show individual panes if there's more than one
@@ -250,6 +255,7 @@ pub fn flatten(
                         session_name: session.session_name.clone(),
                         window_index: window.window_index,
                         pane: pane.clone(),
+                        session_toplevel: session.toplevel.clone(),
                     });
                 }
             }
@@ -719,6 +725,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             pane_current_command,
             pane_title,
             has_multiple_panes,
+            session_toplevel,
             ..
         } => {
             let mut spans = Vec::new();
@@ -731,9 +738,15 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             spans.push(Span::styled(format!("{} ", icon), icon_style));
 
             if !*has_multiple_panes {
-                let toplevel = git_info
+                let pane_toplevel = git_info
                     .as_ref()
                     .and_then(|gi| gi.toplevel.as_deref());
+                // Only use relative path when pane's repo matches session's repo
+                let toplevel = if pane_toplevel == session_toplevel.as_deref() {
+                    pane_toplevel
+                } else {
+                    None
+                };
                 let label =
                     if let (Some(cmd), Some(path)) = (pane_current_command, pane_current_path) {
                         display_label(cmd, path, pane_title.as_deref().unwrap_or(""), toplevel)
@@ -762,7 +775,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
 
             spans
         }
-        TreeItem::Pane { pane, .. } => {
+        TreeItem::Pane { pane, session_toplevel, .. } => {
             let icon = item_icon(
                 pane.agent_state.as_ref(),
                 Some(&pane.pane_current_command),
@@ -773,10 +786,16 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
                 Span::styled(format!("{} ", icon), icon_style),
             ];
 
-            let toplevel = pane
+            let pane_toplevel = pane
                 .git_info
                 .as_ref()
                 .and_then(|gi| gi.toplevel.as_deref());
+            // Only use relative path when pane's repo matches session's repo
+            let toplevel = if pane_toplevel == session_toplevel.as_deref() {
+                pane_toplevel
+            } else {
+                None
+            };
             let label = display_label(&pane.pane_current_command, &pane.pane_current_path, &pane.pane_title, toplevel);
             let needs_attention = matches!(
                 pane.agent_state.as_ref().map(|a| &a.state),
@@ -865,6 +884,7 @@ mod tests {
                 session_name: "main".to_string(),
                 session_attached: true,
                 repo_name: Some("nownabe/chikuwa".to_string()),
+                toplevel: None,
                 windows: vec![
                     TmuxWindow {
                         window_index: 0,
@@ -893,6 +913,7 @@ mod tests {
                 session_name: "dev".to_string(),
                 session_attached: false,
                 repo_name: None,
+                toplevel: None,
                 windows: vec![TmuxWindow {
                     window_index: 0,
                     window_name: "work".to_string(),
@@ -995,6 +1016,7 @@ mod tests {
             pane_current_command: None,
             pane_title: None,
             has_multiple_panes: false,
+            session_toplevel: None,
         };
         assert_eq!(item.tmux_target(), "main:2");
     }
@@ -1005,6 +1027,7 @@ mod tests {
             session_name: "dev".to_string(),
             window_index: 1,
             pane: make_pane("%5", "zsh", None),
+            session_toplevel: None,
         };
         assert_eq!(item.tmux_target(), "dev:1.0");
     }
@@ -1096,6 +1119,16 @@ mod tests {
     }
 
     #[test]
+    fn test_display_label_shell_mismatched_toplevel() {
+        std::env::set_var("HOME", "/home/user");
+        // When toplevel is None (mismatched session), falls back to shortened absolute path
+        assert_eq!(
+            display_label("zsh", "/home/user/src/github.com/nownabe/chikuwa/path/to/dir", "", None),
+            "~/s/g/n/c/p/t/dir"
+        );
+    }
+
+    #[test]
     fn test_flatten_single_pane_window_has_path_and_command() {
         let sessions = make_sessions();
         let items = flatten(&sessions, &HashSet::new());
@@ -1159,6 +1192,7 @@ mod tests {
             session_name: "main".to_string(),
             session_attached: true,
             repo_name: None,
+            toplevel: None,
             windows: vec![
                 TmuxWindow {
                     window_index: 0,
@@ -1189,6 +1223,7 @@ mod tests {
             session_name: "main".to_string(),
             session_attached: true,
             repo_name: None,
+            toplevel: None,
             windows: vec![
                 TmuxWindow {
                     window_index: 0,
@@ -1247,6 +1282,7 @@ mod tests {
                 pane_current_command: None,
                 pane_title: None,
                 has_multiple_panes: false,
+                session_toplevel: None,
             },
         ];
 
@@ -1315,6 +1351,7 @@ mod tests {
             pane_current_command: None,
             pane_title: None,
             has_multiple_panes: false,
+            session_toplevel: None,
         };
         assert!(item_has_git_info(&with_branch));
 
@@ -1328,6 +1365,7 @@ mod tests {
             pane_current_command: None,
             pane_title: None,
             has_multiple_panes: false,
+            session_toplevel: None,
         };
         assert!(!item_has_git_info(&without));
 

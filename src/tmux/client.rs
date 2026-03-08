@@ -78,6 +78,7 @@ fn build_tree(raw: &str, agent_states: &HashMap<String, AgentState>) -> Vec<Tmux
                 session_attached,
                 windows: Vec::new(),
                 repo_name: None,
+                toplevel: None,
             });
             session_map.insert(session_name, idx);
             idx

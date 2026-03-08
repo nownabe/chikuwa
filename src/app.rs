@@ -172,12 +172,17 @@ impl App {
                     pane.git_info = path_info.get(&pane.pane_current_path).cloned();
                 }
             }
-            // Derive repo_name from the first pane that has one
+            // Derive repo_name and toplevel from the first pane that has them
             session.repo_name = session
                 .windows
                 .iter()
                 .flat_map(|w| w.panes.iter())
                 .find_map(|p| p.git_info.as_ref().and_then(|gi| gi.repo_name.clone()));
+            session.toplevel = session
+                .windows
+                .iter()
+                .flat_map(|w| w.panes.iter())
+                .find_map(|p| p.git_info.as_ref().and_then(|gi| gi.toplevel.clone()));
         }
     }
 
@@ -186,16 +191,23 @@ impl App {
     /// the last known path from cache.
     fn fixup_nvim_titles(&mut self) {
         for session in &mut self.sessions {
+            let session_toplevel = session.toplevel.clone();
             for window in &mut session.windows {
                 for pane in &mut window.panes {
                     if pane.pane_current_command != "nvim" {
                         continue;
                     }
                     if let Some((filename, dir)) = extract_nvim_file_info(&pane.pane_title) {
-                        let toplevel = pane
+                        let pane_toplevel = pane
                             .git_info
                             .as_ref()
                             .and_then(|gi| gi.toplevel.as_deref());
+                        // Only use relative path when pane's repo matches session's repo
+                        let toplevel = if pane_toplevel == session_toplevel.as_deref() {
+                            pane_toplevel
+                        } else {
+                            None
+                        };
                         let label = relative_nvim_path(filename, dir, toplevel);
                         self.nvim_title_cache
                             .insert(pane.pane_id.clone(), label.clone());
@@ -518,6 +530,7 @@ mod tests {
                 panes,
             }],
             repo_name: None,
+            toplevel: None,
         }
     }
 
@@ -610,7 +623,9 @@ mod tests {
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
         });
-        app.sessions = vec![make_session(vec![pane])];
+        let mut session = make_session(vec![pane]);
+        session.toplevel = Some("/home/user/project".to_string());
+        app.sessions = vec![session];
 
         app.fixup_nvim_titles();
 
@@ -631,7 +646,9 @@ mod tests {
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
         });
-        app.sessions = vec![make_session(vec![pane])];
+        let mut session = make_session(vec![pane]);
+        session.toplevel = Some("/home/user/project".to_string());
+        app.sessions = vec![session];
         app.fixup_nvim_titles();
 
         // Second refresh: plugin UI title → restored from cache
@@ -685,7 +702,9 @@ mod tests {
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
         });
-        app.sessions = vec![make_session(vec![pane])];
+        let mut session = make_session(vec![pane]);
+        session.toplevel = Some("/home/user/project".to_string());
+        app.sessions = vec![session];
         app.fixup_nvim_titles();
         assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "project/src/app.rs");
 
@@ -696,8 +715,35 @@ mod tests {
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
         });
-        app.sessions = vec![make_session(vec![pane2])];
+        let mut session2 = make_session(vec![pane2]);
+        session2.toplevel = Some("/home/user/project".to_string());
+        app.sessions = vec![session2];
         app.fixup_nvim_titles();
         assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "project/src/main.rs");
+    }
+
+    #[test]
+    fn test_fixup_mismatched_session_toplevel_falls_back_to_filename() {
+        std::env::set_var("HOME", "/home/user");
+        let mut app = App::new();
+        let mut pane = make_nvim_pane("%0", "theme.rs (~/chikuwa/src/ui) - Nvim");
+        pane.git_info = Some(crate::git::GitInfo {
+            branch: None,
+            pr: None,
+            repo_name: None,
+            toplevel: Some("/home/user/chikuwa".to_string()),
+        });
+        // Session belongs to a different repo
+        let mut session = make_session(vec![pane]);
+        session.toplevel = Some("/home/user/other-project".to_string());
+        app.sessions = vec![session];
+
+        app.fixup_nvim_titles();
+
+        // Should fall back to just the filename since repos don't match
+        assert_eq!(
+            app.sessions[0].windows[0].panes[0].pane_title,
+            "theme.rs"
+        );
     }
 }
