@@ -113,10 +113,66 @@ fn shorten_path(path: &str) -> String {
     format!("{}/{}", prefix, parts.join("/"))
 }
 
-/// Compute a display label: shortened path for shells, pane_title for nvim, command name otherwise.
-fn display_label(command: &str, path: &str, pane_title: &str) -> String {
+/// Compute relative path from toplevel, with progressive abbreviation for long paths.
+/// Always includes the repo directory name as prefix (e.g. "chikuwa/src/ui").
+fn relative_path(path: &str, toplevel: Option<&str>) -> String {
+    let Some(toplevel) = toplevel else {
+        return shorten_path(path);
+    };
+
+    // Extract repo dir name from toplevel (e.g. "/home/user/project" → "project")
+    let repo_dir = std::path::Path::new(toplevel)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let full = if let Some(rest) = path.strip_prefix(toplevel) {
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        if rest.is_empty() {
+            format!("{}/", repo_dir)
+        } else {
+            format!("{}/{}", repo_dir, rest)
+        }
+    } else {
+        return shorten_path(path);
+    };
+
+    shorten_relative_path(&full, 30)
+}
+
+/// Abbreviate intermediate directory components progressively from left
+/// until the path fits within max_len. The first and last components are
+/// never abbreviated.
+pub(crate) fn shorten_relative_path(path: &str, max_len: usize) -> String {
+    if path.len() <= max_len {
+        return path.to_string();
+    }
+
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() <= 2 {
+        return path.to_string();
+    }
+
+    // Start abbreviating from index 1 (skip first component = repo dir)
+    // and stop before last component (filename or trailing dir)
+    let mut abbreviated: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+    for i in 1..abbreviated.len() - 1 {
+        if let Some(c) = abbreviated[i].chars().next() {
+            abbreviated[i] = c.to_string();
+        }
+        let result = abbreviated.join("/");
+        if result.len() <= max_len {
+            return result;
+        }
+    }
+
+    abbreviated.join("/")
+}
+
+/// Compute a display label: relative path for shells, pane_title for nvim, command name otherwise.
+fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&str>) -> String {
     if is_shell(command) {
-        shorten_path(path)
+        relative_path(path, toplevel)
     } else if command == "nvim" && !pane_title.is_empty() {
         pane_title.to_string()
     } else {
@@ -658,6 +714,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
         TreeItem::Window {
             window_name,
             agent_state,
+            git_info,
             pane_current_path,
             pane_current_command,
             pane_title,
@@ -674,9 +731,12 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             spans.push(Span::styled(format!("{} ", icon), icon_style));
 
             if !*has_multiple_panes {
+                let toplevel = git_info
+                    .as_ref()
+                    .and_then(|gi| gi.toplevel.as_deref());
                 let label =
                     if let (Some(cmd), Some(path)) = (pane_current_command, pane_current_path) {
-                        display_label(cmd, path, pane_title.as_deref().unwrap_or(""))
+                        display_label(cmd, path, pane_title.as_deref().unwrap_or(""), toplevel)
                     } else {
                         window_name.clone()
                     };
@@ -713,7 +773,11 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
                 Span::styled(format!("{} ", icon), icon_style),
             ];
 
-            let label = display_label(&pane.pane_current_command, &pane.pane_current_path, &pane.pane_title);
+            let toplevel = pane
+                .git_info
+                .as_ref()
+                .and_then(|gi| gi.toplevel.as_deref());
+            let label = display_label(&pane.pane_current_command, &pane.pane_current_path, &pane.pane_title, toplevel);
             let needs_attention = matches!(
                 pane.agent_state.as_ref().map(|a| &a.state),
                 Some(AgentStatus::Permission | AgentStatus::Waiting)
@@ -967,6 +1031,18 @@ mod tests {
     }
 
     #[test]
+    fn test_shorten_relative_path() {
+        assert_eq!(shorten_relative_path("repo/ui/theme.rs", 30), "repo/ui/theme.rs");
+        // First component (repo dir) is never abbreviated
+        assert_eq!(
+            shorten_relative_path("repo/deeply/nested/dir/file.rs", 20),
+            "repo/d/n/dir/file.rs"
+        );
+        assert_eq!(shorten_relative_path("file.rs", 30), "file.rs");
+        assert_eq!(shorten_relative_path("repo/file.rs", 5), "repo/file.rs");
+    }
+
+    #[test]
     fn test_shorten_path() {
         std::env::set_var("HOME", "/home/user");
         assert_eq!(shorten_path("/home/user/src/github.com/nownabe/chikuwa"), "~/s/g/n/chikuwa");
@@ -977,23 +1053,46 @@ mod tests {
     }
 
     #[test]
-    fn test_display_label_shell() {
+    fn test_display_label_shell_with_toplevel() {
+        assert_eq!(
+            display_label("zsh", "/home/user/project/src", "", Some("/home/user/project")),
+            "project/src"
+        );
+        assert_eq!(
+            display_label("zsh", "/home/user/project", "", Some("/home/user/project")),
+            "project/"
+        );
+    }
+
+    #[test]
+    fn test_display_label_shell_without_toplevel() {
         std::env::set_var("HOME", "/home/user");
-        assert_eq!(display_label("zsh", "/home/user/projects/myapp", ""), "~/p/myapp");
-        assert_eq!(display_label("bash", "/tmp", ""), "/tmp");
-        assert_eq!(display_label("fish", "/", ""), "/");
+        assert_eq!(display_label("zsh", "/home/user/projects/myapp", "", None), "~/p/myapp");
+        assert_eq!(display_label("bash", "/tmp", "", None), "/tmp");
     }
 
     #[test]
     fn test_display_label_nvim() {
-        assert_eq!(display_label("nvim", "/home/user", "app.rs"), "app.rs");
-        assert_eq!(display_label("nvim", "/home/user", ""), "nvim");
+        assert_eq!(display_label("nvim", "/home/user", "app.rs", None), "app.rs");
+        assert_eq!(display_label("nvim", "/home/user", "", None), "nvim");
     }
 
     #[test]
     fn test_display_label_non_shell() {
-        assert_eq!(display_label("vim", "/home/user", ""), "vim");
-        assert_eq!(display_label("node", "/home/user/project", ""), "node");
+        assert_eq!(display_label("vim", "/home/user", "", None), "vim");
+        assert_eq!(display_label("node", "/home/user/project", "", None), "node");
+    }
+
+    #[test]
+    fn test_relative_path() {
+        assert_eq!(relative_path("/home/user/project/src/ui", Some("/home/user/project")), "project/src/ui");
+        assert_eq!(relative_path("/home/user/project", Some("/home/user/project")), "project/");
+    }
+
+    #[test]
+    fn test_relative_path_no_toplevel() {
+        std::env::set_var("HOME", "/home/user");
+        assert_eq!(relative_path("/home/user/projects/myapp", None), "~/p/myapp");
     }
 
     #[test]

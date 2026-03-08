@@ -71,45 +71,25 @@ fn relative_nvim_path(filename: &str, dir: Option<&str>, toplevel: Option<&str>)
         dir.to_string()
     };
 
+    // Extract repo dir name from toplevel
+    let repo_dir = std::path::Path::new(toplevel)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
     // Compute relative path from toplevel
     let full_path = format!("{}/{}", expanded_dir, filename);
-    let rel = if let Some(rest) = full_path.strip_prefix(toplevel) {
-        rest.strip_prefix('/').unwrap_or(rest)
+    let full = if let Some(rest) = full_path.strip_prefix(toplevel) {
+        let rest = rest.strip_prefix('/').unwrap_or(rest);
+        if rest.is_empty() {
+            return filename.to_string();
+        }
+        format!("{}/{}", repo_dir, rest)
     } else {
         return filename.to_string();
     };
 
-    if rel.is_empty() {
-        return filename.to_string();
-    }
-
-    shorten_relative_path(rel, 30)
-}
-
-/// Abbreviate intermediate directory components progressively from left
-/// until the path fits within max_len. The last component (filename) is never abbreviated.
-fn shorten_relative_path(path: &str, max_len: usize) -> String {
-    if path.len() <= max_len {
-        return path.to_string();
-    }
-
-    let parts: Vec<&str> = path.split('/').collect();
-    if parts.len() <= 1 {
-        return path.to_string();
-    }
-
-    let mut abbreviated: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
-    for i in 0..abbreviated.len() - 1 {
-        if let Some(c) = abbreviated[i].chars().next() {
-            abbreviated[i] = c.to_string();
-        }
-        let result = abbreviated.join("/");
-        if result.len() <= max_len {
-            return result;
-        }
-    }
-
-    abbreviated.join("/")
+    tree::shorten_relative_path(&full, 30)
 }
 
 pub struct App {
@@ -587,7 +567,7 @@ mod tests {
                 Some("~/src/project/src/ui"),
                 Some("/home/user/src/project")
             ),
-            "src/ui/theme.rs"
+            "project/src/ui/theme.rs"
         );
     }
 
@@ -620,16 +600,6 @@ mod tests {
     }
 
     #[test]
-    fn test_shorten_relative_path() {
-        assert_eq!(shorten_relative_path("src/ui/theme.rs", 30), "src/ui/theme.rs");
-        assert_eq!(
-            shorten_relative_path("src/deeply/nested/dir/file.rs", 20),
-            "s/d/n/dir/file.rs"
-        );
-        assert_eq!(shorten_relative_path("file.rs", 30), "file.rs");
-    }
-
-    #[test]
     fn test_fixup_computes_relative_path() {
         std::env::set_var("HOME", "/home/user");
         let mut app = App::new();
@@ -646,7 +616,7 @@ mod tests {
 
         assert_eq!(
             app.sessions[0].windows[0].panes[0].pane_title,
-            "src/ui/theme.rs"
+            "project/src/ui/theme.rs"
         );
     }
 
@@ -673,7 +643,7 @@ mod tests {
 
         assert_eq!(
             app.sessions[0].windows[0].panes[0].pane_title,
-            "src/app.rs"
+            "project/src/app.rs"
         );
     }
 
@@ -717,7 +687,7 @@ mod tests {
         });
         app.sessions = vec![make_session(vec![pane])];
         app.fixup_nvim_titles();
-        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "src/app.rs");
+        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "project/src/app.rs");
 
         let mut pane2 = make_nvim_pane("%0", "main.rs (~/project/src) - Nvim");
         pane2.git_info = Some(crate::git::GitInfo {
@@ -728,6 +698,6 @@ mod tests {
         });
         app.sessions = vec![make_session(vec![pane2])];
         app.fixup_nvim_titles();
-        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "src/main.rs");
+        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "project/src/main.rs");
     }
 }
