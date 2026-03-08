@@ -77,15 +77,6 @@ chikuwa
 | `G` | Jump to bottom |
 | `q` / `Ctrl+C` | Quit |
 
-### Agent Status
-
-| Icon | Status | Description |
-|---|---|---|
-| `·` (animated) | Running | Agent is actively working |
-| `` | Waiting | Agent is waiting for user input |
-| `` | Permission | Agent needs permission approval |
-| `` | Started | Agent session just started |
-
 ### Claude Code Hooks Setup
 
 Add the following to `~/.claude/settings.json`:
