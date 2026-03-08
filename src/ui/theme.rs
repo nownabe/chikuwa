@@ -9,7 +9,7 @@ pub const COLOR_LIGHT_PURPLE: Color = Color::Rgb(0xb6, 0xb9, 0xff);
 
 // NerdFont icons
 pub const ICON_CARET_RIGHT: &str = "\u{f0da}"; //
-pub const ICON_FOLDER: &str = "\u{f07b}"; //
+pub const ICON_SESSION: &str = "\u{ebc8}";
 pub const ICON_GIT_BRANCH: &str = "\u{e725}"; //
 pub const ICON_PR: &str = "\u{f407}"; //
 pub const SPINNER_FRAMES: &[&str] = &["·", "✢", "*", "✶", "✻", "✽"];

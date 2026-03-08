@@ -482,7 +482,7 @@ fn render_collapsed_session(
         format!(
             "{} {} {}",
             theme::ICON_CARET_RIGHT,
-            theme::ICON_FOLDER,
+            theme::ICON_SESSION,
             name,
         ),
         name_style,
@@ -508,7 +508,7 @@ fn render_session_top_border(
     width: u16,
     selected: bool,
 ) -> Line<'static> {
-    let left_text = format!(" {} ", name);
+    let left_text = format!(" {} {} ", theme::ICON_SESSION, name);
     let right_text = repo_name
         .map(|r| format!(" {} ", r))
         .unwrap_or_default();
