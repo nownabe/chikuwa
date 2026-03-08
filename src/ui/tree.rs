@@ -176,6 +176,9 @@ pub(crate) fn shorten_relative_path(path: &str, max_len: usize) -> String {
 
 /// Compute a display label: relative path for shells, pane_title for nvim, command name otherwise.
 fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&str>) -> String {
+    if let Some(activity) = extract_claude_activity(pane_title) {
+        return activity;
+    }
     if is_shell(command) {
         let p = relative_path(path, toplevel);
         if p.ends_with('/') { p } else { format!("{}/", p) }
@@ -198,6 +201,33 @@ fn item_has_git_info(item: &TreeItem) -> bool {
             .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()),
         _ => false,
     }
+}
+
+/// Check if a pane title looks like it was set by Claude Code.
+/// Claude Code titles start with a non-alphanumeric icon character (e.g. "✳", "⠐").
+fn is_claude_code_title(pane_title: &str) -> bool {
+    pane_title
+        .chars()
+        .next()
+        .map_or(false, |c| !c.is_alphanumeric() && !c.is_ascii())
+}
+
+/// Extract Claude activity text from a pane title, stripping leading icon characters.
+/// Returns None if the title doesn't look like a Claude Code title, or is the default "Claude Code".
+fn extract_claude_activity(pane_title: &str) -> Option<String> {
+    if !is_claude_code_title(pane_title) {
+        return None;
+    }
+    // Strip the leading spinner/icon character and whitespace.
+    // Pane titles look like "✳ Some task" or "⠐ Claude Code".
+    let activity = pane_title
+        .strip_prefix(|c: char| !c.is_alphanumeric())
+        .unwrap_or(pane_title)
+        .trim();
+    if activity.is_empty() {
+        return None;
+    }
+    Some(activity.to_string())
 }
 
 /// Flatten the session tree into a list of TreeItems for rendering.
@@ -297,8 +327,11 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize) -> usize {
                         return visual;
                     }
                     visual += 1;
+                    if item_has_agent_status(&items[i]) {
+                        visual += 1;
+                    }
                     if item_has_git_info(&items[i]) {
-                        visual += 1; // git sub-line
+                        visual += 1;
                     }
                     i += 1;
                 }
@@ -307,6 +340,9 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize) -> usize {
             }
             _ => {
                 visual += 1;
+                if item_has_agent_status(&items[i]) {
+                    visual += 1;
+                }
                 if item_has_git_info(&items[i]) {
                     visual += 1;
                 }
@@ -338,6 +374,9 @@ pub fn total_visual_rows(items: &[TreeItem]) -> usize {
                 i += 1;
                 while i < items.len() && !matches!(&items[i], TreeItem::Session { .. }) {
                     visual += 1;
+                    if item_has_agent_status(&items[i]) {
+                        visual += 1;
+                    }
                     if item_has_git_info(&items[i]) {
                         visual += 1;
                     }
@@ -347,6 +386,9 @@ pub fn total_visual_rows(items: &[TreeItem]) -> usize {
             }
             _ => {
                 visual += 1;
+                if item_has_agent_status(&items[i]) {
+                    visual += 1;
+                }
                 if item_has_git_info(&items[i]) {
                     visual += 1;
                 }
@@ -433,10 +475,15 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_fram
                     is_selected,
                 ));
 
-                // Content items with git sub-lines
+                // Content items with agent status and git sub-lines
                 for j in content_start..content_end {
                     let is_sel = j == selected;
                     lines.push(render_bordered_item(&items[j], width, is_sel, attached, anim_frame));
+                    if let Some(status_line) =
+                        render_bordered_agent_status_sub_line(&items[j], width, is_sel, attached, anim_frame)
+                    {
+                        lines.push(status_line);
+                    }
                     if let Some(git_line) =
                         render_bordered_git_sub_line(&items[j], width, is_sel, attached)
                     {
@@ -612,6 +659,79 @@ fn render_bordered_item(
     Line::from(spans)
 }
 
+/// Check if a tree item has an agent status to display.
+fn item_has_agent_status(item: &TreeItem) -> bool {
+    match item {
+        TreeItem::Window { agent_state, .. } => agent_state.is_some(),
+        TreeItem::Pane { pane, .. } => pane.agent_state.is_some(),
+        _ => false,
+    }
+}
+
+/// Render an agent status sub-line (e.g. "· running") for an item.
+fn render_bordered_agent_status_sub_line(
+    item: &TreeItem,
+    width: u16,
+    selected: bool,
+    session_attached: bool,
+    anim_frame: usize,
+) -> Option<Line<'static>> {
+    let (agent, prefix) = match item {
+        TreeItem::Window { agent_state: Some(agent), .. } => (agent, "  "),
+        TreeItem::Pane { pane, .. } => (pane.agent_state.as_ref()?, "    "),
+        _ => return None,
+    };
+
+    let status_label = match agent.state {
+        AgentStatus::Started => "starting",
+        AgentStatus::Running => "running",
+        AgentStatus::Waiting => "waiting",
+        AgentStatus::Permission => "needs input",
+        AgentStatus::Ended => "ended",
+    };
+
+    let content_width = (width as usize).saturating_sub(4);
+    let mut inner_spans = vec![
+        Span::styled(
+            prefix.to_string(),
+            Style::default().fg(theme::COLOR_PURPLE),
+        ),
+        Span::styled(
+            theme::status_icon(&agent.state, anim_frame).to_string(),
+            theme::status_style(&agent.state, session_attached),
+        ),
+        Span::styled(
+            format!(" {}", status_label),
+            Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a)),
+        ),
+    ];
+    truncate_spans(&mut inner_spans, content_width);
+
+    let inner_width: usize = inner_spans.iter().map(|s| s.content.chars().count()).sum();
+    let padding_len = content_width.saturating_sub(inner_width);
+
+    if selected {
+        for span in &mut inner_spans {
+            span.style = span.style.bg(Color::DarkGray);
+        }
+    }
+
+    let border_style = session_border_style(session_attached);
+    let mut spans = vec![Span::styled("\u{2502} ", border_style)];
+    spans.extend(inner_spans);
+    if padding_len > 0 {
+        let pad_style = if selected {
+            Style::default().bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        spans.push(Span::styled(" ".repeat(padding_len), pad_style));
+    }
+    spans.push(Span::styled(" \u{2502}", border_style));
+
+    Some(Line::from(spans))
+}
+
 /// Render a git info sub-line for an item, if it has displayable git info.
 fn render_bordered_git_sub_line(
     item: &TreeItem,
@@ -737,7 +857,7 @@ fn item_icon(
     theme::ICON_TERMINAL
 }
 
-fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usize) -> Vec<Span<'static>> {
+fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: usize) -> Vec<Span<'static>> {
     let icon_style = session_border_style(session_attached);
     match item {
         TreeItem::Window {
@@ -792,10 +912,6 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
                 }
             }
 
-            if let Some(agent) = agent_state {
-                append_agent_info(&mut spans, agent, anim_frame, session_attached);
-            }
-
             spans
         }
         TreeItem::Pane { pane, session_toplevel, .. } => {
@@ -835,36 +951,10 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
                 spans.push(Span::raw(label));
             }
 
-            if let Some(ref agent) = pane.agent_state {
-                append_agent_info(&mut spans, agent, anim_frame, session_attached);
-            }
-
             spans
         }
         _ => vec![],
     }
-}
-
-fn append_agent_info(
-    spans: &mut Vec<Span<'static>>,
-    agent: &AgentState,
-    anim_frame: usize,
-    session_attached: bool,
-) {
-    let status_label = match agent.state {
-        AgentStatus::Started => "starting",
-        AgentStatus::Running => "running",
-        AgentStatus::Waiting => "waiting",
-        AgentStatus::Permission => "needs input",
-        AgentStatus::Ended => "ended",
-    };
-    let text_style = Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a));
-    spans.push(Span::raw(" "));
-    spans.push(Span::styled(
-        theme::status_icon(&agent.state, anim_frame).to_string(),
-        theme::status_style(&agent.state, session_attached),
-    ));
-    spans.push(Span::styled(format!(" {}", status_label), text_style));
 }
 
 #[cfg(test)]
@@ -1414,5 +1504,49 @@ mod tests {
             worktree_name: None,
         };
         assert!(!item_has_git_info(&session));
+    }
+
+    #[test]
+    fn test_extract_claude_activity_strips_icon() {
+        let result = extract_claude_activity("✳ Rust環境変数設定");
+        assert_eq!(result, Some("Rust環境変数設定".to_string()));
+    }
+
+    #[test]
+    fn test_extract_claude_activity_default_title() {
+        assert_eq!(extract_claude_activity("⠐ Claude Code"), Some("Claude Code".to_string()));
+        assert_eq!(extract_claude_activity("✳ Claude Code"), Some("Claude Code".to_string()));
+    }
+
+    #[test]
+    fn test_extract_claude_activity_none_for_non_claude() {
+        // Regular pane titles (no leading icon) should return None
+        assert_eq!(extract_claude_activity(""), None);
+        assert_eq!(extract_claude_activity("zsh"), None);
+        assert_eq!(extract_claude_activity("~/src/project"), None);
+    }
+
+    #[test]
+    fn test_display_label_claude_activity() {
+        assert_eq!(
+            display_label("node", "/home/user", "✳ Rust環境変数設定", None),
+            "Rust環境変数設定"
+        );
+        assert_eq!(
+            display_label("node", "/home/user", "✳ Fixing bug", None),
+            "Fixing bug"
+        );
+    }
+
+    #[test]
+    fn test_display_label_claude_default_title() {
+        assert_eq!(
+            display_label("node", "/home/user", "⠐ Claude Code", None),
+            "Claude Code"
+        );
+        assert_eq!(
+            display_label("node", "/home/user", "✳ Claude Code", None),
+            "Claude Code"
+        );
     }
 }
