@@ -74,12 +74,16 @@ Add the following to `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
     "PreToolUse": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
     "PermissionRequest": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
     "Notification": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "SessionStart": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}]
   }
 }
