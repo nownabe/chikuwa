@@ -19,10 +19,19 @@ struct HookInput {
 }
 
 /// Extract a short detail string from tool_input based on the tool name.
+/// For tools with file paths, formats as `file_path:line_number` (nvim-compatible) when a line number is available.
 fn extract_tool_detail(tool_name: &str, input: &serde_json::Value) -> Option<String> {
     let s = match tool_name {
         "Bash" => input.get("command")?.as_str()?,
-        "Read" | "Write" | "Edit" | "NotebookEdit" => input.get("file_path")?.as_str()?,
+        "Read" => {
+            let path = input.get("file_path")?.as_str()?;
+            if let Some(offset) = input.get("offset").and_then(|v| v.as_u64()) {
+                return Some(format!("{path}:{offset}"));
+            }
+            path
+        }
+        "Write" | "Edit" => input.get("file_path")?.as_str()?,
+        "NotebookEdit" => input.get("notebook_path")?.as_str()?,
         "Grep" => input.get("pattern")?.as_str()?,
         "Glob" => input.get("pattern")?.as_str()?,
         "WebFetch" => input.get("url")?.as_str()?,
@@ -113,5 +122,66 @@ mod tests {
         let input: HookInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.hook_event_name, "Notification");
         assert_eq!(input.session_id, Some("s1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_tool_detail_read_with_offset() {
+        let input = serde_json::json!({"file_path": "/src/main.rs", "offset": 42});
+        assert_eq!(
+            extract_tool_detail("Read", &input),
+            Some("/src/main.rs:42".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tool_detail_read_without_offset() {
+        let input = serde_json::json!({"file_path": "/src/main.rs"});
+        assert_eq!(
+            extract_tool_detail("Read", &input),
+            Some("/src/main.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tool_detail_edit() {
+        let input =
+            serde_json::json!({"file_path": "/src/lib.rs", "old_string": "foo", "new_string": "bar"});
+        assert_eq!(
+            extract_tool_detail("Edit", &input),
+            Some("/src/lib.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tool_detail_write() {
+        let input = serde_json::json!({"file_path": "/src/new.rs", "content": "fn main() {}"});
+        assert_eq!(
+            extract_tool_detail("Write", &input),
+            Some("/src/new.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tool_detail_notebook_edit() {
+        let input = serde_json::json!({"notebook_path": "/notebooks/test.ipynb", "new_source": "x = 1"});
+        assert_eq!(
+            extract_tool_detail("NotebookEdit", &input),
+            Some("/notebooks/test.ipynb".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tool_detail_bash() {
+        let input = serde_json::json!({"command": "ls -la"});
+        assert_eq!(
+            extract_tool_detail("Bash", &input),
+            Some("ls -la".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tool_detail_unknown_tool() {
+        let input = serde_json::json!({"foo": "bar"});
+        assert_eq!(extract_tool_detail("UnknownTool", &input), None);
     }
 }
