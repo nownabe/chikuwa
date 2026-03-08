@@ -109,6 +109,9 @@ pub struct App {
     nvim_title_cache: HashMap<String, String>,
     /// Last known terminal width for visual row calculations.
     last_width: u16,
+    /// True when the user has navigated manually (Up/Down/Top/Bottom).
+    /// Prevents auto-follow of the active tmux pane until the user selects an item.
+    user_navigated: bool,
 }
 
 impl App {
@@ -125,6 +128,7 @@ impl App {
             anim_frame: 0,
             nvim_title_cache: HashMap::new(),
             last_width: 80,
+            user_navigated: false,
         }
     }
 
@@ -231,9 +235,11 @@ impl App {
 
     fn rebuild_tree(&mut self) {
         self.tree_items = tree::flatten(&self.sessions, &self.collapsed);
-        // Follow the active (focused) pane/window
-        if let Some(active_idx) = tree::find_active_index(&self.sessions, &self.tree_items) {
-            self.selected = active_idx;
+        // Follow the active (focused) pane/window only when the user hasn't navigated manually
+        if !self.user_navigated {
+            if let Some(active_idx) = tree::find_active_index(&self.sessions, &self.tree_items) {
+                self.selected = active_idx;
+            }
         }
         // Clamp selected index
         if !self.tree_items.is_empty() && self.selected >= self.tree_items.len() {
@@ -261,6 +267,7 @@ impl App {
     }
 
     fn move_up(&mut self) {
+        self.user_navigated = true;
         let mut idx = self.selected;
         while idx > 0 {
             idx -= 1;
@@ -273,6 +280,7 @@ impl App {
     }
 
     fn move_down(&mut self) {
+        self.user_navigated = true;
         let mut idx = self.selected;
         while idx < self.tree_items.len().saturating_sub(1) {
             idx += 1;
@@ -285,6 +293,7 @@ impl App {
     }
 
     fn move_top(&mut self) {
+        self.user_navigated = true;
         if let Some(idx) = self.tree_items.iter().position(|item| item.is_selectable()) {
             self.selected = idx;
         }
@@ -292,6 +301,7 @@ impl App {
     }
 
     fn move_bottom(&mut self) {
+        self.user_navigated = true;
         if let Some(idx) = self
             .tree_items
             .iter()
@@ -348,6 +358,7 @@ impl App {
         }
 
         // Switch tmux for windows/panes
+        self.user_navigated = false;
         let target = item.tmux_target();
         if let Ok(Some(client)) = tmux_client::detect_client().await {
             let _ = tmux_client::switch_to(&client, &target).await;
