@@ -183,6 +183,11 @@ impl App {
                 .iter()
                 .flat_map(|w| w.panes.iter())
                 .find_map(|p| p.git_info.as_ref().and_then(|gi| gi.toplevel.clone()));
+            session.worktree_name = session
+                .windows
+                .iter()
+                .flat_map(|w| w.panes.iter())
+                .find_map(|p| p.git_info.as_ref().and_then(|gi| gi.worktree_name.clone()));
         }
     }
 
@@ -531,6 +536,7 @@ mod tests {
             }],
             repo_name: None,
             toplevel: None,
+            worktree_name: None,
         }
     }
 
@@ -622,6 +628,7 @@ mod tests {
             pr: None,
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
+            worktree_name: None,
         });
         let mut session = make_session(vec![pane]);
         session.toplevel = Some("/home/user/project".to_string());
@@ -645,6 +652,7 @@ mod tests {
             pr: None,
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
+            worktree_name: None,
         });
         let mut session = make_session(vec![pane]);
         session.toplevel = Some("/home/user/project".to_string());
@@ -701,6 +709,7 @@ mod tests {
             pr: None,
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
+            worktree_name: None,
         });
         let mut session = make_session(vec![pane]);
         session.toplevel = Some("/home/user/project".to_string());
@@ -714,6 +723,7 @@ mod tests {
             pr: None,
             repo_name: None,
             toplevel: Some("/home/user/project".to_string()),
+            worktree_name: None,
         });
         let mut session2 = make_session(vec![pane2]);
         session2.toplevel = Some("/home/user/project".to_string());
@@ -732,6 +742,7 @@ mod tests {
             pr: None,
             repo_name: None,
             toplevel: Some("/home/user/chikuwa".to_string()),
+            worktree_name: None,
         });
         // Session belongs to a different repo
         let mut session = make_session(vec![pane]);

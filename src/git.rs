@@ -10,6 +10,7 @@ pub struct GitInfo {
     pub pr: Option<PrInfo>,
     pub repo_name: Option<String>,
     pub toplevel: Option<String>,
+    pub worktree_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +25,7 @@ struct CacheEntry {
     pr_fetched_at: Instant,
     repo_name_fetched: bool,
     toplevel_fetched: bool,
+    worktree_fetched: bool,
 }
 
 const BRANCH_TTL_SECS: u64 = 2;
@@ -74,6 +76,12 @@ impl GitInfoCache {
                 entry.toplevel_fetched = true;
             }
 
+            // Worktree name is fetched once and cached
+            if !entry.worktree_fetched {
+                entry.git_info.worktree_name = fetch_worktree_name(path).await;
+                entry.worktree_fetched = true;
+            }
+
             return Some(entry.git_info.clone());
         }
 
@@ -86,12 +94,14 @@ impl GitInfoCache {
         };
         let repo_name = fetch_repo_name(path).await;
         let toplevel = fetch_toplevel(path).await;
+        let worktree_name = fetch_worktree_name(path).await;
 
         let git_info = GitInfo {
             branch,
             pr,
             repo_name,
             toplevel,
+            worktree_name,
         };
         self.entries.insert(
             path_buf,
@@ -101,6 +111,7 @@ impl GitInfoCache {
                 pr_fetched_at: now,
                 repo_name_fetched: true,
                 toplevel_fetched: true,
+                worktree_fetched: true,
             },
         );
 
@@ -224,6 +235,31 @@ fn parse_repo_name(url: &str) -> Option<String> {
     None
 }
 
+/// Detect if this is a git worktree and return the worktree name.
+/// Worktrees have a git-dir like `.git/worktrees/<name>`.
+async fn fetch_worktree_name(path: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(path)
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let git_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Worktree git-dir contains "/worktrees/" (e.g. "/path/to/repo/.git/worktrees/my-worktree")
+    if let Some(idx) = git_dir.rfind("/worktrees/") {
+        let name = &git_dir[idx + "/worktrees/".len()..];
+        if !name.is_empty() {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
 /// Get PR info via `gh pr view <branch> --json number,title`.
 async fn fetch_pr(path: &str, branch: &str) -> Option<PrInfo> {
     let output = Command::new("gh")
@@ -268,11 +304,13 @@ mod tests {
                     pr: None,
                     repo_name: Some("owner/repo1".to_string()),
                     toplevel: None,
+                    worktree_name: None,
                 },
                 branch_fetched_at: Instant::now(),
                 pr_fetched_at: Instant::now(),
                 repo_name_fetched: true,
                 toplevel_fetched: true,
+                worktree_fetched: true,
             },
         );
         cache.entries.insert(
@@ -283,11 +321,13 @@ mod tests {
                     pr: None,
                     repo_name: None,
                     toplevel: None,
+                    worktree_name: None,
                 },
                 branch_fetched_at: Instant::now(),
                 pr_fetched_at: Instant::now(),
                 repo_name_fetched: true,
                 toplevel_fetched: true,
+                worktree_fetched: true,
             },
         );
 
@@ -311,6 +351,7 @@ mod tests {
             }),
             repo_name: Some("nownabe/chikuwa".to_string()),
             toplevel: None,
+            worktree_name: None,
         };
         let cloned = info.clone();
         assert_eq!(cloned.branch, Some("feature/x".to_string()));

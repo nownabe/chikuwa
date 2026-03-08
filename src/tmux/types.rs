@@ -30,4 +30,5 @@ pub struct TmuxSession {
     pub windows: Vec<TmuxWindow>,
     pub repo_name: Option<String>,
     pub toplevel: Option<String>,
+    pub worktree_name: Option<String>,
 }

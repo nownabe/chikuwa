@@ -17,6 +17,7 @@ pub enum TreeItem {
         attached: bool,
         collapsed: bool,
         repo_name: Option<String>,
+        worktree_name: Option<String>,
     },
     Window {
         session_name: String,
@@ -213,6 +214,7 @@ pub fn flatten(
             attached: session.session_attached,
             collapsed,
             repo_name: session.repo_name.clone(),
+            worktree_name: session.worktree_name.clone(),
         });
 
         if collapsed {
@@ -389,11 +391,13 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_fram
                 name,
                 attached,
                 repo_name,
+                worktree_name,
             } => {
                 lines.push(render_collapsed_session(
                     name,
                     *attached,
                     repo_name.as_deref(),
+                    worktree_name.as_deref(),
                     i == selected,
                 ));
                 i += 1;
@@ -403,11 +407,13 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_fram
                 name,
                 attached,
                 repo_name,
+                worktree_name,
             } => {
                 let is_selected = i == selected;
                 let name = name.clone();
                 let attached = *attached;
                 let repo_name = repo_name.clone();
+                let worktree_name = worktree_name.clone();
                 i += 1;
 
                 // Collect content items until next Session or end
@@ -422,6 +428,7 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_fram
                     &name,
                     attached,
                     repo_name.as_deref(),
+                    worktree_name.as_deref(),
                     width,
                     is_selected,
                 ));
@@ -474,6 +481,7 @@ fn render_collapsed_session(
     name: &str,
     attached: bool,
     repo_name: Option<&str>,
+    worktree_name: Option<&str>,
     selected: bool,
 ) -> Line<'static> {
     let name_style = session_name_style(attached);
@@ -490,8 +498,11 @@ fn render_collapsed_session(
 
     if let Some(repo) = repo_name {
         let repo_short = repo.rsplit('/').next().unwrap_or(repo);
+        let wt = worktree_name
+            .map(|w| format!(" ({})", w))
+            .unwrap_or_default();
         spans.push(Span::styled(
-            format!(" \u{2500}\u{2500} {} {}", theme::ICON_GITHUB, repo_short),
+            format!(" \u{2500}\u{2500} {} {}{}", theme::ICON_GITHUB, repo_short, wt),
             name_style,
         ));
     }
@@ -509,6 +520,7 @@ fn render_session_top_border(
     name: &str,
     attached: bool,
     repo_name: Option<&str>,
+    worktree_name: Option<&str>,
     width: u16,
     selected: bool,
 ) -> Line<'static> {
@@ -516,7 +528,10 @@ fn render_session_top_border(
     let right_text = repo_name
         .map(|r| {
             let repo_short = r.rsplit('/').next().unwrap_or(r);
-            format!(" {} {} ", theme::ICON_GITHUB, repo_short)
+            let wt = worktree_name
+                .map(|w| format!(" ({})", w))
+                .unwrap_or_default();
+            format!(" {} {}{} ", theme::ICON_GITHUB, repo_short, wt)
         })
         .unwrap_or_default();
 
@@ -893,6 +908,7 @@ mod tests {
                 session_attached: true,
                 repo_name: Some("nownabe/chikuwa".to_string()),
                 toplevel: None,
+                worktree_name: None,
                 windows: vec![
                     TmuxWindow {
                         window_index: 0,
@@ -922,6 +938,7 @@ mod tests {
                 session_attached: false,
                 repo_name: None,
                 toplevel: None,
+                worktree_name: None,
                 windows: vec![TmuxWindow {
                     window_index: 0,
                     window_name: "work".to_string(),
@@ -1008,6 +1025,7 @@ mod tests {
             attached: true,
             collapsed: false,
             repo_name: None,
+            worktree_name: None,
         };
         assert_eq!(item.tmux_target(), "main");
     }
@@ -1180,12 +1198,14 @@ mod tests {
                 attached: true,
                 collapsed: true,
                 repo_name: None,
+                worktree_name: None,
             },
             TreeItem::Session {
                 name: "b".to_string(),
                 attached: false,
                 collapsed: true,
                 repo_name: None,
+                worktree_name: None,
             },
         ];
 
@@ -1201,6 +1221,7 @@ mod tests {
             session_attached: true,
             repo_name: None,
             toplevel: None,
+            worktree_name: None,
             windows: vec![
                 TmuxWindow {
                     window_index: 0,
@@ -1232,6 +1253,7 @@ mod tests {
             session_attached: true,
             repo_name: None,
             toplevel: None,
+            worktree_name: None,
             windows: vec![
                 TmuxWindow {
                     window_index: 0,
@@ -1245,6 +1267,7 @@ mod tests {
                             pr: None,
                             repo_name: None,
                             toplevel: None,
+                            worktree_name: None,
                         },
                     )],
                 },
@@ -1273,12 +1296,14 @@ mod tests {
                 attached: false,
                 collapsed: true,
                 repo_name: None,
+                worktree_name: None,
             },
             TreeItem::Session {
                 name: "expanded".to_string(),
                 attached: true,
                 collapsed: false,
                 repo_name: None,
+                worktree_name: None,
             },
             TreeItem::Window {
                 session_name: "expanded".to_string(),
@@ -1310,6 +1335,7 @@ mod tests {
             }),
             repo_name: None,
             toplevel: None,
+            worktree_name: None,
         };
         let spans = git_display_spans(&gi);
         assert_eq!(spans.len(), 1);
@@ -1324,6 +1350,7 @@ mod tests {
             pr: None,
             repo_name: None,
             toplevel: None,
+            worktree_name: None,
         };
         let spans = git_display_spans(&gi);
         assert_eq!(spans.len(), 1);
@@ -1337,6 +1364,7 @@ mod tests {
             pr: None,
             repo_name: None,
             toplevel: None,
+            worktree_name: None,
         };
         let spans = git_display_spans(&gi);
         assert!(spans.is_empty());
@@ -1354,6 +1382,7 @@ mod tests {
                 pr: None,
                 repo_name: None,
                 toplevel: None,
+                worktree_name: None,
             }),
             pane_current_path: None,
             pane_current_command: None,
@@ -1382,6 +1411,7 @@ mod tests {
             attached: true,
             collapsed: false,
             repo_name: None,
+            worktree_name: None,
         };
         assert!(!item_has_git_info(&session));
     }
