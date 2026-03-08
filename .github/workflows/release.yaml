@@ -14,8 +14,8 @@ jobs:
       pull-requests: read
       id-token: write
     outputs:
-      release-created: ${{ steps.release.outputs.releases_created }}
-      tag: ${{ steps.release.outputs.tag }}
+      releases-created: ${{ steps.release.outputs.releases_created }}
+      tag: ${{ steps.set-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -38,6 +38,12 @@ jobs:
           command: release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Set tag output
+        id: set-tag
+        if: steps.release.outputs.releases_created == 'true'
+        run: echo "tag=$(echo "$RELEASES" | jq -r '.[0].tag')" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASES: ${{ steps.release.outputs.releases }}
 
   release-plz-pr:
     runs-on: ubuntu-latest
@@ -69,7 +75,7 @@ jobs:
 
   upload-binary:
     needs: release-plz-release
-    if: needs.release-plz-release.outputs.release-created == 'true'
+    if: needs.release-plz-release.outputs.releases-created == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
