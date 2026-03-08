@@ -11,7 +11,7 @@ use crossterm::terminal::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Terminal;
@@ -438,16 +438,77 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                 ])
                 .split(size);
 
-            // Render title bar
-            let title = vec![
-                Line::from(""),
-                Line::from(vec![Span::styled(
+            // Render title bar — wave sparkle when any agent is Running
+            let has_running = app
+                .agent_states
+                .values()
+                .any(|s| s.state == crate::agent::state::AgentStatus::Running);
+            let title_spans = if has_running {
+                // Shine effect: white highlight sweeps across purple base
+                let wave_palette = {
+                    let white: (f32, f32, f32) = (0xff as f32, 0xff as f32, 0xff as f32);
+                    let purple: (f32, f32, f32) = (0x92 as f32, 0x93 as f32, 0xfe as f32);
+                    // Sharp peak: 3 steps rise, 3 steps fall, long purple rest
+                    let total = 40;
+                    let peak = 3;
+                    let mut palette = Vec::with_capacity(total);
+                    for i in 0..total {
+                        let t = if i < peak {
+                            // rise to white
+                            i as f32 / peak as f32
+                        } else if i < peak * 2 {
+                            // fall back to purple
+                            1.0 - (i - peak) as f32 / peak as f32
+                        } else {
+                            // stay purple
+                            0.0
+                        };
+                        // ease-in-out for smoother peak
+                        let t = t * t * (3.0 - 2.0 * t);
+                        let r = purple.0 + (white.0 - purple.0) * t;
+                        let g = purple.1 + (white.1 - purple.1) * t;
+                        let b = purple.2 + (white.2 - purple.2) * t;
+                        palette.push(Color::Rgb(r as u8, g as u8, b as u8));
+                    }
+                    palette
+                };
+                let plen = wave_palette.len();
+                let chikuwa_spans: Vec<Span> = "chikuwa"
+                    .chars()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let idx = (plen + i * 2 - app.anim_frame * 3 % plen) % plen;
+                        Span::styled(
+                            c.to_string(),
+                            Style::default()
+                                .fg(wave_palette[idx])
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    })
+                    .collect();
+                let mut spans = vec![Span::styled(
+                    "🐧 ⚡️",
+                    Style::default()
+                        .fg(theme::COLOR_WHITE)
+                        .add_modifier(Modifier::BOLD),
+                )];
+                spans.extend(chikuwa_spans);
+                spans.push(Span::styled(
+                    " ⚡️🐧",
+                    Style::default()
+                        .fg(theme::COLOR_WHITE)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans
+            } else {
+                vec![Span::styled(
                     "🐧 ⚡️chikuwa ⚡️🐧",
                     Style::default()
                         .fg(theme::COLOR_WHITE)
                         .add_modifier(Modifier::BOLD),
-                )]),
-            ];
+                )]
+            };
+            let title = vec![Line::from(""), Line::from(title_spans)];
             f.render_widget(
                 Paragraph::new(title).alignment(Alignment::Center),
                 chunks[0],
