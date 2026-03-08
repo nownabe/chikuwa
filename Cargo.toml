@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "tmux AI Agent monitor TUI"
 license = "Apache-2.0"
+repository = "https://github.com/nownabe/chikuwa"
 
 [dependencies]
 anyhow = "1"
