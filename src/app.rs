@@ -209,10 +209,8 @@ impl App {
                         continue;
                     }
                     if let Some((filename, dir)) = extract_nvim_file_info(&pane.pane_title) {
-                        let pane_toplevel = pane
-                            .git_info
-                            .as_ref()
-                            .and_then(|gi| gi.toplevel.as_deref());
+                        let pane_toplevel =
+                            pane.git_info.as_ref().and_then(|gi| gi.toplevel.as_deref());
                         // Only use relative path when pane's repo matches session's repo
                         let toplevel = if pane_toplevel == session_toplevel.as_deref() {
                             pane_toplevel
@@ -287,11 +285,7 @@ impl App {
     }
 
     fn move_top(&mut self) {
-        if let Some(idx) = self
-            .tree_items
-            .iter()
-            .position(|item| item.is_selectable())
-        {
+        if let Some(idx) = self.tree_items.iter().position(|item| item.is_selectable()) {
             self.selected = idx;
         }
         self.scroll_offset = 0;
@@ -321,11 +315,7 @@ impl App {
             .position(|item| item.is_selectable())
         {
             self.selected += offset;
-        } else if let Some(idx) = self
-            .tree_items
-            .iter()
-            .position(|item| item.is_selectable())
-        {
+        } else if let Some(idx) = self.tree_items.iter().position(|item| item.is_selectable()) {
             self.selected = idx;
         }
     }
@@ -451,16 +441,17 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             // Render title bar
             let title = vec![
                 Line::from(""),
-                Line::from(vec![
-                    Span::styled(
-                        "🐧⚡️chikuwa ⚡️🐧",
-                        Style::default()
-                            .fg(theme::COLOR_WHITE)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]),
+                Line::from(vec![Span::styled(
+                    "🐧 ⚡️chikuwa ⚡️🐧",
+                    Style::default()
+                        .fg(theme::COLOR_WHITE)
+                        .add_modifier(Modifier::BOLD),
+                )]),
             ];
-            f.render_widget(Paragraph::new(title).alignment(Alignment::Center), chunks[0]);
+            f.render_widget(
+                Paragraph::new(title).alignment(Alignment::Center),
+                chunks[0],
+            );
 
             // Adjust scroll for visible area (visual rows, no outer border)
             let visible_height = chunks[1].height as usize;
@@ -517,9 +508,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                     use crate::agent::state::AgentStatus;
                     if state.state == AgentStatus::Ended {
                         app.agent_states.remove(&state.tmux_pane);
-                    } else if let Some(existing) =
-                        app.agent_states.get(&state.tmux_pane)
-                    {
+                    } else if let Some(existing) = app.agent_states.get(&state.tmux_pane) {
                         // Preserve existing session_id if incoming is None
                         let session_id = state
                             .session_id
@@ -527,11 +516,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                             .or_else(|| existing.session_id.clone());
                         let mut merged = state;
                         merged.session_id = session_id;
-                        app.agent_states
-                            .insert(merged.tmux_pane.clone(), merged);
+                        app.agent_states.insert(merged.tmux_pane.clone(), merged);
                     } else {
-                        app.agent_states
-                            .insert(state.tmux_pane.clone(), state);
+                        app.agent_states.insert(state.tmux_pane.clone(), state);
                     }
                     app.merge_agent_states();
                 }
@@ -626,7 +613,10 @@ mod tests {
 
     #[test]
     fn test_relative_nvim_path_no_dir() {
-        assert_eq!(relative_nvim_path("app.rs", None, Some("/project")), "app.rs");
+        assert_eq!(
+            relative_nvim_path("app.rs", None, Some("/project")),
+            "app.rs"
+        );
     }
 
     #[test]
@@ -749,7 +739,10 @@ mod tests {
         session.toplevel = Some("/home/user/project".to_string());
         app.sessions = vec![session];
         app.fixup_nvim_titles();
-        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "project/src/app.rs");
+        assert_eq!(
+            app.nvim_title_cache.get("%0").unwrap(),
+            "project/src/app.rs"
+        );
 
         let mut pane2 = make_nvim_pane("%0", "main.rs (~/project/src) - Nvim");
         pane2.git_info = Some(crate::git::GitInfo {
@@ -763,7 +756,10 @@ mod tests {
         session2.toplevel = Some("/home/user/project".to_string());
         app.sessions = vec![session2];
         app.fixup_nvim_titles();
-        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "project/src/main.rs");
+        assert_eq!(
+            app.nvim_title_cache.get("%0").unwrap(),
+            "project/src/main.rs"
+        );
     }
 
     #[test]
@@ -786,9 +782,6 @@ mod tests {
         app.fixup_nvim_titles();
 
         // Should fall back to just the filename since repos don't match
-        assert_eq!(
-            app.sessions[0].windows[0].panes[0].pane_title,
-            "theme.rs"
-        );
+        assert_eq!(app.sessions[0].windows[0].panes[0].pane_title, "theme.rs");
     }
 }
