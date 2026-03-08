@@ -426,7 +426,7 @@ async fn run_app(
 
     // Event channel
     let (tx, mut rx) = mpsc::channel(32);
-    let tick_rate = Duration::from_secs(2);
+    let tick_rate = Duration::from_secs(1);
 
     // Spawn event loop in a blocking thread (crossterm events are blocking)
     let event_tx = tx.clone();
