@@ -104,6 +104,8 @@ pub struct App {
     anim_frame: usize,
     /// Cache of last valid nvim file title per pane_id.
     nvim_title_cache: HashMap<String, String>,
+    /// Last known terminal width for visual row calculations.
+    last_width: u16,
 }
 
 impl App {
@@ -119,6 +121,7 @@ impl App {
             git_cache: GitInfoCache::new(),
             anim_frame: 0,
             nvim_title_cache: HashMap::new(),
+            last_width: 80,
         }
     }
 
@@ -234,7 +237,7 @@ impl App {
         // Ensure selected is not a Session item
         self.snap_to_selectable();
         // Clamp scroll offset to valid visual row range
-        let total_visual = tree::total_visual_rows(&self.tree_items);
+        let total_visual = tree::total_visual_rows(&self.tree_items, self.last_width);
         if total_visual > 0 && self.scroll_offset >= total_visual {
             self.scroll_offset = total_visual - 1;
         }
@@ -321,7 +324,7 @@ impl App {
     }
 
     fn ensure_visible(&mut self) {
-        let visual = tree::item_to_visual_row(&self.tree_items, self.selected);
+        let visual = tree::item_to_visual_row(&self.tree_items, self.selected, self.last_width);
         if visual < self.scroll_offset {
             self.scroll_offset = visual;
         }
@@ -431,8 +434,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
 
             // Adjust scroll for visible area (visual rows, no outer border)
             let visible_height = chunks[0].height as usize;
+            app.last_width = chunks[0].width;
             let selected_visual =
-                tree::item_to_visual_row(&app.tree_items, app.selected);
+                tree::item_to_visual_row(&app.tree_items, app.selected, app.last_width);
             if selected_visual >= app.scroll_offset + visible_height {
                 app.scroll_offset = selected_visual.saturating_sub(visible_height - 1);
             }

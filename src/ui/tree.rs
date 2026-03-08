@@ -190,25 +190,57 @@ fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&
     }
 }
 
-/// Whether this item has displayable git info (branch or PR).
-/// Only shown for Claude Code panes (detected by pane title icon prefix).
-fn item_has_git_info(item: &TreeItem) -> bool {
+/// Return the git info and prefix for an item, if it's a Claude Code pane with git info.
+fn item_git_info<'a>(item: &'a TreeItem) -> Option<(&'a GitInfo, &'static str)> {
     match item {
         TreeItem::Window {
             git_info: Some(gi),
             pane_title,
             ..
-        } if is_claude_code_title(pane_title.as_deref().unwrap_or("")) => {
-            gi.branch.is_some() || gi.pr.is_some()
+        } if is_claude_code_title(pane_title.as_deref().unwrap_or(""))
+            && (gi.branch.is_some() || gi.pr.is_some()) =>
+        {
+            Some((gi, "  "))
         }
         TreeItem::Pane { pane, .. }
-            if is_claude_code_title(&pane.pane_title) =>
+            if is_claude_code_title(&pane.pane_title)
+                && pane
+                    .git_info
+                    .as_ref()
+                    .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()) =>
         {
-            pane.git_info
-                .as_ref()
-                .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some())
+            Some((pane.git_info.as_ref().unwrap(), "    "))
         }
-        _ => false,
+        _ => None,
+    }
+}
+
+/// Count the number of visual rows the git sub-lines occupy for an item.
+fn git_info_visual_rows(item: &TreeItem, width: u16) -> usize {
+    let (gi, prefix) = match item_git_info(item) {
+        Some(v) => v,
+        None => return 0,
+    };
+    let content_width = (width as usize).saturating_sub(4);
+    let prefix_width = prefix.width();
+    if let Some(ref pr) = gi.pr {
+        let header = format!("{} #{} ", theme::ICON_PR, pr.number);
+        let header_width = header.width() + prefix_width;
+        let title_width = pr.title.width();
+        let first_line_avail = content_width.saturating_sub(header_width);
+        if title_width <= first_line_avail {
+            1
+        } else {
+            let wrap_avail = content_width.saturating_sub(prefix_width);
+            if wrap_avail == 0 {
+                return 1;
+            }
+            // First line fits header + part of title
+            let remaining = title_width.saturating_sub(first_line_avail);
+            1 + (remaining + wrap_avail - 1) / wrap_avail
+        }
+    } else {
+        1 // branch line is always 1 row
     }
 }
 
@@ -308,8 +340,8 @@ pub fn flatten(
 }
 
 /// Compute the visual row index for a given item index.
-/// Visual rows include session borders and git sub-lines.
-pub fn item_to_visual_row(items: &[TreeItem], target: usize) -> usize {
+/// Visual rows include session borders and sub-lines.
+pub fn item_to_visual_row(items: &[TreeItem], target: usize, width: u16) -> usize {
     let mut visual = 0;
     let mut i = 0;
 
@@ -339,9 +371,7 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize) -> usize {
                     if item_has_agent_status(&items[i]) {
                         visual += 1;
                     }
-                    if item_has_git_info(&items[i]) {
-                        visual += 1;
-                    }
+                    visual += git_info_visual_rows(&items[i], width);
                     i += 1;
                 }
 
@@ -352,9 +382,7 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize) -> usize {
                 if item_has_agent_status(&items[i]) {
                     visual += 1;
                 }
-                if item_has_git_info(&items[i]) {
-                    visual += 1;
-                }
+                visual += git_info_visual_rows(&items[i], width);
                 i += 1;
             }
         }
@@ -364,7 +392,7 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize) -> usize {
 }
 
 /// Total number of visual rows.
-pub fn total_visual_rows(items: &[TreeItem]) -> usize {
+pub fn total_visual_rows(items: &[TreeItem], width: u16) -> usize {
     let mut visual = 0;
     let mut i = 0;
 
@@ -386,9 +414,7 @@ pub fn total_visual_rows(items: &[TreeItem]) -> usize {
                     if item_has_agent_status(&items[i]) {
                         visual += 1;
                     }
-                    if item_has_git_info(&items[i]) {
-                        visual += 1;
-                    }
+                    visual += git_info_visual_rows(&items[i], width);
                     i += 1;
                 }
                 visual += 1; // bottom border
@@ -398,9 +424,7 @@ pub fn total_visual_rows(items: &[TreeItem]) -> usize {
                 if item_has_agent_status(&items[i]) {
                     visual += 1;
                 }
-                if item_has_git_info(&items[i]) {
-                    visual += 1;
-                }
+                visual += git_info_visual_rows(&items[i], width);
                 i += 1;
             }
         }
@@ -493,11 +517,7 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_fram
                     {
                         lines.push(status_line);
                     }
-                    if let Some(git_line) =
-                        render_bordered_git_sub_line(&items[j], width, is_sel, attached)
-                    {
-                        lines.push(git_line);
-                    }
+                    lines.extend(render_bordered_git_sub_lines(&items[j], width, is_sel, attached));
                 }
 
                 // Bottom border
@@ -741,45 +761,104 @@ fn render_bordered_agent_status_sub_line(
     Some(Line::from(spans))
 }
 
-/// Render a git info sub-line for an item, if it has displayable git info.
-fn render_bordered_git_sub_line(
+/// Render git info sub-lines for an item. Returns multiple lines for long PR titles.
+fn render_bordered_git_sub_lines(
     item: &TreeItem,
     width: u16,
     selected: bool,
     session_attached: bool,
-) -> Option<Line<'static>> {
-    let (gi, prefix) = match item {
-        TreeItem::Window {
-            git_info: Some(gi),
-            pane_title,
-            ..
-        } if is_claude_code_title(pane_title.as_deref().unwrap_or(""))
-            && (gi.branch.is_some() || gi.pr.is_some()) =>
-        {
-            (gi, "  ")
-        }
-        TreeItem::Pane { pane, .. }
-            if is_claude_code_title(&pane.pane_title)
-                && pane
-                    .git_info
-                    .as_ref()
-                    .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()) =>
-        {
-            (pane.git_info.as_ref().unwrap(), "    ")
-        }
-        _ => return None,
+) -> Vec<Line<'static>> {
+    let (gi, prefix) = match item_git_info(item) {
+        Some(v) => v,
+        None => return vec![],
     };
 
-    let git_spans = git_display_spans(gi);
-    if git_spans.is_empty() {
-        return None;
+    let content_width = (width as usize).saturating_sub(4);
+    let git_style = Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a));
+    let border_style = session_border_style(session_attached);
+    let prefix_style = Style::default().fg(theme::COLOR_PURPLE);
+
+    // For branch (no PR), single line with truncation
+    if gi.pr.is_none() {
+        if let Some(ref branch) = gi.branch {
+            let text = format!("{} {}", theme::ICON_GIT_BRANCH, branch);
+            let mut inner_spans = vec![
+                Span::styled(prefix.to_string(), prefix_style),
+                Span::styled(text, git_style),
+            ];
+            truncate_spans(&mut inner_spans, content_width);
+            return vec![wrap_bordered_line(inner_spans, content_width, selected, border_style)];
+        }
+        return vec![];
     }
 
-    let content_width = (width as usize).saturating_sub(4);
-    let mut inner_spans = vec![Span::styled(prefix.to_string(), Style::default().fg(theme::COLOR_PURPLE))];
-    inner_spans.extend(git_spans);
-    truncate_spans(&mut inner_spans, content_width);
+    // PR: may need multiple lines for long titles
+    let pr = gi.pr.as_ref().unwrap();
+    let header = format!("{} #{} ", theme::ICON_PR, pr.number);
+    let header_width = header.width();
+    let prefix_width = prefix.width();
+    let first_line_avail = content_width.saturating_sub(prefix_width + header_width);
 
+    // Split title into lines by display width
+    let title_lines = wrap_text(&pr.title, first_line_avail, content_width.saturating_sub(prefix_width));
+
+    let mut lines = Vec::new();
+    for (i, title_chunk) in title_lines.iter().enumerate() {
+        let inner_spans = if i == 0 {
+            vec![
+                Span::styled(prefix.to_string(), prefix_style),
+                Span::styled(header.clone(), git_style),
+                Span::styled(title_chunk.clone(), git_style),
+            ]
+        } else {
+            vec![
+                Span::styled(prefix.to_string(), prefix_style),
+                Span::styled(title_chunk.clone(), git_style),
+            ]
+        };
+        lines.push(wrap_bordered_line(inner_spans, content_width, selected, border_style));
+    }
+
+    lines
+}
+
+/// Wrap text into lines by display width. First line has `first_width`, subsequent lines have `rest_width`.
+fn wrap_text(text: &str, first_width: usize, rest_width: usize) -> Vec<String> {
+    if first_width == 0 && rest_width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0;
+    let mut max_width = first_width;
+
+    for c in text.chars() {
+        let cw = UnicodeWidthStr::width(c.to_string().as_str());
+        if current_width + cw > max_width && !current.is_empty() {
+            lines.push(current);
+            current = String::new();
+            current_width = 0;
+            max_width = rest_width;
+        }
+        current.push(c);
+        current_width += cw;
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+/// Build a single bordered line from inner spans with padding.
+fn wrap_bordered_line(
+    mut inner_spans: Vec<Span<'static>>,
+    content_width: usize,
+    selected: bool,
+    border_style: Style,
+) -> Line<'static> {
     let inner_width: usize = inner_spans.iter().map(|s| s.content.width()).sum();
     let padding_len = content_width.saturating_sub(inner_width);
 
@@ -789,7 +868,6 @@ fn render_bordered_git_sub_line(
         }
     }
 
-    let border_style = session_border_style(session_attached);
     let mut spans = vec![Span::styled("\u{2502} ", border_style)];
     spans.extend(inner_spans);
     if padding_len > 0 {
@@ -802,25 +880,7 @@ fn render_bordered_git_sub_line(
     }
     spans.push(Span::styled(" \u{2502}", border_style));
 
-    Some(Line::from(spans))
-}
-
-/// Build git display spans: PR takes priority over branch.
-fn git_display_spans(gi: &GitInfo) -> Vec<Span<'static>> {
-    let git_style = Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a));
-    if let Some(ref pr) = gi.pr {
-        vec![Span::styled(
-            format!("{} #{} {}", theme::ICON_PR, pr.number, pr.title),
-            git_style,
-        )]
-    } else if let Some(ref branch) = gi.branch {
-        vec![Span::styled(
-            format!("{} {}", theme::ICON_GIT_BRANCH, branch),
-            git_style,
-        )]
-    } else {
-        vec![]
-    }
+    Line::from(spans)
 }
 
 /// Truncate spans to fit within max_width display columns.
@@ -988,7 +1048,6 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: us
 mod tests {
     use super::*;
     use crate::agent::state::AgentStatus;
-    use crate::git::PrInfo;
     use crate::tmux::types::{TmuxPane, TmuxSession, TmuxWindow};
     use std::collections::HashSet;
 
@@ -1326,9 +1385,9 @@ mod tests {
             },
         ];
 
-        assert_eq!(item_to_visual_row(&items, 0), 0);
-        assert_eq!(item_to_visual_row(&items, 1), 1);
-        assert_eq!(total_visual_rows(&items), 2);
+        assert_eq!(item_to_visual_row(&items, 0, 80), 0);
+        assert_eq!(item_to_visual_row(&items, 1, 80), 1);
+        assert_eq!(total_visual_rows(&items, 80), 2);
     }
 
     #[test]
@@ -1357,10 +1416,10 @@ mod tests {
         let items = flatten(&sessions, &HashSet::new());
 
         // No git info: top_border(0), window_a(1), window_b(2), bottom_border(3)
-        assert_eq!(item_to_visual_row(&items, 0), 0);
-        assert_eq!(item_to_visual_row(&items, 1), 1);
-        assert_eq!(item_to_visual_row(&items, 2), 2);
-        assert_eq!(total_visual_rows(&items), 4);
+        assert_eq!(item_to_visual_row(&items, 0, 80), 0);
+        assert_eq!(item_to_visual_row(&items, 1, 80), 1);
+        assert_eq!(item_to_visual_row(&items, 2, 80), 2);
+        assert_eq!(total_visual_rows(&items, 80), 4);
     }
 
     #[test]
@@ -1403,10 +1462,10 @@ mod tests {
         let items = flatten(&sessions, &HashSet::new());
 
         // top_border(0), window_claude(1), git_sub(2), window_zsh(3), bottom_border(4)
-        assert_eq!(item_to_visual_row(&items, 0), 0); // Session
-        assert_eq!(item_to_visual_row(&items, 1), 1); // Window claude
-        assert_eq!(item_to_visual_row(&items, 2), 3); // Window zsh (after git sub-line)
-        assert_eq!(total_visual_rows(&items), 5);
+        assert_eq!(item_to_visual_row(&items, 0, 80), 0); // Session
+        assert_eq!(item_to_visual_row(&items, 1, 80), 1); // Window claude
+        assert_eq!(item_to_visual_row(&items, 2, 80), 3); // Window zsh (after git sub-line)
+        assert_eq!(total_visual_rows(&items, 80), 5);
     }
 
     #[test]
@@ -1440,60 +1499,28 @@ mod tests {
             },
         ];
 
-        assert_eq!(item_to_visual_row(&items, 0), 0);
-        assert_eq!(item_to_visual_row(&items, 1), 1);
-        assert_eq!(item_to_visual_row(&items, 2), 2);
-        assert_eq!(total_visual_rows(&items), 4);
+        assert_eq!(item_to_visual_row(&items, 0, 80), 0);
+        assert_eq!(item_to_visual_row(&items, 1, 80), 1);
+        assert_eq!(item_to_visual_row(&items, 2, 80), 2);
+        assert_eq!(total_visual_rows(&items, 80), 4);
     }
 
     #[test]
-    fn test_git_display_spans_pr_priority() {
-        let gi = GitInfo {
-            branch: Some("feature/x".to_string()),
-            pr: Some(PrInfo {
-                number: 42,
-                title: "Fix bug".to_string(),
-            }),
-            repo_name: None,
-            toplevel: None,
-            worktree_name: None,
-        };
-        let spans = git_display_spans(&gi);
-        assert_eq!(spans.len(), 1);
-        assert!(spans[0].content.contains("#42"));
-        assert!(!spans[0].content.contains("feature/x"));
+    fn test_wrap_text() {
+        // Fits in first line
+        assert_eq!(wrap_text("short", 10, 10), vec!["short"]);
+        // Wraps to second line
+        assert_eq!(wrap_text("hello world!", 5, 10), vec!["hello", " world!"]);
+        // Multiple wraps
+        assert_eq!(
+            wrap_text("abcdefghij", 3, 4),
+            vec!["abc", "defg", "hij"]
+        );
     }
 
     #[test]
-    fn test_git_display_spans_branch_only() {
-        let gi = GitInfo {
-            branch: Some("main".to_string()),
-            pr: None,
-            repo_name: None,
-            toplevel: None,
-            worktree_name: None,
-        };
-        let spans = git_display_spans(&gi);
-        assert_eq!(spans.len(), 1);
-        assert!(spans[0].content.contains("main"));
-    }
-
-    #[test]
-    fn test_git_display_spans_empty() {
-        let gi = GitInfo {
-            branch: None,
-            pr: None,
-            repo_name: None,
-            toplevel: None,
-            worktree_name: None,
-        };
-        let spans = git_display_spans(&gi);
-        assert!(spans.is_empty());
-    }
-
-    #[test]
-    fn test_item_has_git_info() {
-        // Claude Code pane with git info → true
+    fn test_item_git_info() {
+        // Claude Code pane with git info → Some
         let claude_with_branch = TreeItem::Window {
             session_name: "s".to_string(),
             window_index: 0,
@@ -1512,9 +1539,9 @@ mod tests {
             has_multiple_panes: false,
             session_toplevel: None,
         };
-        assert!(item_has_git_info(&claude_with_branch));
+        assert!(item_git_info(&claude_with_branch).is_some());
 
-        // Non-Claude pane with git info → false
+        // Non-Claude pane with git info → None
         let non_claude_with_branch = TreeItem::Window {
             session_name: "s".to_string(),
             window_index: 0,
@@ -1533,7 +1560,7 @@ mod tests {
             has_multiple_panes: false,
             session_toplevel: None,
         };
-        assert!(!item_has_git_info(&non_claude_with_branch));
+        assert!(item_git_info(&non_claude_with_branch).is_none());
 
         let session = TreeItem::Session {
             name: "s".to_string(),
@@ -1542,7 +1569,7 @@ mod tests {
             repo_name: None,
             worktree_name: None,
         };
-        assert!(!item_has_git_info(&session));
+        assert!(item_git_info(&session).is_none());
     }
 
     #[test]
