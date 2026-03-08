@@ -210,6 +210,9 @@ mod tests {
                 state: AgentStatus::Running,
                 updated_at: 100,
                 hook_event_name: None,
+                tool_name: None,
+                tool_detail: None,
+                tools: Vec::new(),
             },
         );
 

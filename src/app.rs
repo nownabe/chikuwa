@@ -620,8 +620,35 @@ async fn run_app(
                             .session_id
                             .clone()
                             .or_else(|| existing.session_id.clone());
+                        // Merge active tools list based on hook event
+                        let tools = if state.state == AgentStatus::Running {
+                            let event = state.hook_event_name.as_deref().unwrap_or("");
+                            match event {
+                                "PreToolUse" => {
+                                    let mut tools = existing.tools.clone();
+                                    tools.extend(state.tools.iter().cloned());
+                                    tools
+                                }
+                                "PostToolUse" | "PostToolUseFailure" => {
+                                    let mut tools = existing.tools.clone();
+                                    if let Some(removing) = state.tools.first() {
+                                        if let Some(pos) = tools
+                                            .iter()
+                                            .position(|t| t.name == removing.name && t.detail == removing.detail)
+                                        {
+                                            tools.remove(pos);
+                                        }
+                                    }
+                                    tools
+                                }
+                                _ => existing.tools.clone(),
+                            }
+                        } else {
+                            Vec::new()
+                        };
                         let mut merged = state;
                         merged.session_id = session_id;
+                        merged.tools = tools;
                         app.agent_states.insert(merged.tmux_pane.clone(), merged);
                     } else {
                         app.agent_states.insert(state.tmux_pane.clone(), state);

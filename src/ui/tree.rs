@@ -406,9 +406,7 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize, width: u16) -> usiz
                         return visual;
                     }
                     visual += 1;
-                    if item_has_agent_status(&items[i]) {
-                        visual += 1;
-                    }
+                    visual += agent_status_visual_rows(&items[i]);
                     visual += git_info_visual_rows(&items[i], width);
                     i += 1;
                 }
@@ -417,9 +415,7 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize, width: u16) -> usiz
             }
             _ => {
                 visual += 1;
-                if item_has_agent_status(&items[i]) {
-                    visual += 1;
-                }
+                visual += agent_status_visual_rows(&items[i]);
                 visual += git_info_visual_rows(&items[i], width);
                 i += 1;
             }
@@ -449,9 +445,7 @@ pub fn total_visual_rows(items: &[TreeItem], width: u16) -> usize {
                 i += 1;
                 while i < items.len() && !matches!(&items[i], TreeItem::Session { .. }) {
                     visual += 1;
-                    if item_has_agent_status(&items[i]) {
-                        visual += 1;
-                    }
+                    visual += agent_status_visual_rows(&items[i]);
                     visual += git_info_visual_rows(&items[i], width);
                     i += 1;
                 }
@@ -459,9 +453,7 @@ pub fn total_visual_rows(items: &[TreeItem], width: u16) -> usize {
             }
             _ => {
                 visual += 1;
-                if item_has_agent_status(&items[i]) {
-                    visual += 1;
-                }
+                visual += agent_status_visual_rows(&items[i]);
                 visual += git_info_visual_rows(&items[i], width);
                 i += 1;
             }
@@ -550,11 +542,7 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_fram
                 for j in content_start..content_end {
                     let is_sel = j == selected;
                     lines.push(render_bordered_item(&items[j], width, is_sel, attached, anim_frame));
-                    if let Some(status_line) =
-                        render_bordered_agent_status_sub_line(&items[j], width, is_sel, attached, anim_frame)
-                    {
-                        lines.push(status_line);
-                    }
+                    lines.extend(render_bordered_agent_status_sub_lines(&items[j], width, is_sel, attached, anim_frame));
                     lines.extend(render_bordered_git_sub_lines(&items[j], width, is_sel, attached));
                 }
 
@@ -727,27 +715,39 @@ fn render_bordered_item(
 }
 
 /// Check if a tree item has an agent status to display.
-fn item_has_agent_status(item: &TreeItem) -> bool {
-    match item {
-        TreeItem::Window { agent_state, .. } => agent_state.is_some(),
-        TreeItem::Pane { pane, .. } => pane.agent_state.is_some(),
-        _ => false,
-    }
+/// Count how many visual sub-lines the agent status occupies (status + optional tool).
+fn agent_status_visual_rows(item: &TreeItem) -> usize {
+    let agent = match item {
+        TreeItem::Window { agent_state: Some(a), .. } => a,
+        TreeItem::Pane { pane, .. } => match pane.agent_state.as_ref() {
+            Some(a) => a,
+            None => return 0,
+        },
+        _ => return 0,
+    };
+    1 + agent.tools.len()
 }
 
 /// Render an agent status sub-line (e.g. "· running") for an item.
-fn render_bordered_agent_status_sub_line(
+fn render_bordered_agent_status_sub_lines(
     item: &TreeItem,
     width: u16,
     selected: bool,
     session_attached: bool,
     anim_frame: usize,
-) -> Option<Line<'static>> {
+) -> Vec<Line<'static>> {
     let (agent, prefix) = match item {
         TreeItem::Window { agent_state: Some(agent), .. } => (agent, "  "),
-        TreeItem::Pane { pane, .. } => (pane.agent_state.as_ref()?, "    "),
-        _ => return None,
+        TreeItem::Pane { pane, .. } => match pane.agent_state.as_ref() {
+            Some(agent) => (agent, "    "),
+            None => return vec![],
+        },
+        _ => return vec![],
     };
+
+    let content_width = (width as usize).saturating_sub(4);
+    let border_style = session_border_style(session_attached);
+    let dim_style = Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a));
 
     let status_label = match agent.state {
         AgentStatus::Started => "starting",
@@ -757,8 +757,8 @@ fn render_bordered_agent_status_sub_line(
         AgentStatus::Ended => "ended",
     };
 
-    let content_width = (width as usize).saturating_sub(4);
-    let mut inner_spans = vec![
+    // Status line
+    let mut status_spans = vec![
         Span::styled(
             prefix.to_string(),
             Style::default().fg(theme::COLOR_PURPLE),
@@ -767,36 +767,26 @@ fn render_bordered_agent_status_sub_line(
             theme::status_icon(&agent.state, anim_frame).to_string(),
             theme::status_style(&agent.state, session_attached),
         ),
-        Span::styled(
-            format!(" {}", status_label),
-            Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a)),
-        ),
+        Span::styled(format!(" {}", status_label), dim_style),
     ];
-    truncate_spans(&mut inner_spans, content_width);
+    truncate_spans(&mut status_spans, content_width);
+    let mut result = vec![wrap_bordered_line(status_spans, content_width, selected, border_style)];
 
-    let inner_width: usize = inner_spans.iter().map(|s| s.content.width()).sum();
-    let padding_len = content_width.saturating_sub(inner_width);
-
-    if selected {
-        for span in &mut inner_spans {
-            span.style = span.style.bg(Color::DarkGray);
-        }
-    }
-
-    let border_style = session_border_style(session_attached);
-    let mut spans = vec![Span::styled("\u{2502} ", border_style)];
-    spans.extend(inner_spans);
-    if padding_len > 0 {
-        let pad_style = if selected {
-            Style::default().bg(Color::DarkGray)
-        } else {
-            Style::default()
+    // Tool lines (one row per active tool)
+    for tool in &agent.tools {
+        let tool_text = match &tool.detail {
+            Some(detail) => format!("{} {}: {}", theme::ICON_TOOL, tool.name, detail),
+            None => format!("{} {}", theme::ICON_TOOL, tool.name),
         };
-        spans.push(Span::styled(" ".repeat(padding_len), pad_style));
+        let mut tool_spans = vec![
+            Span::styled(format!("{}  ", prefix), Style::default().fg(theme::COLOR_PURPLE)),
+            Span::styled(tool_text, dim_style),
+        ];
+        truncate_spans(&mut tool_spans, content_width);
+        result.push(wrap_bordered_line(tool_spans, content_width, selected, border_style));
     }
-    spans.push(Span::styled(" \u{2502}", border_style));
 
-    Some(Line::from(spans))
+    result
 }
 
 /// Render git info sub-lines for an item. Returns multiple lines for long PR titles.
@@ -1137,6 +1127,9 @@ mod tests {
                                 state: AgentStatus::Running,
                                 updated_at: 100,
                                 hook_event_name: None,
+                                tool_name: None,
+                                tool_detail: None,
+                                tools: Vec::new(),
                             }),
                         )],
                     },

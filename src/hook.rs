@@ -3,7 +3,7 @@ use std::io::Read;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::agent::state::{AgentState, AgentStatus};
+use crate::agent::state::{AgentState, AgentStatus, ToolInfo};
 use crate::ipc;
 
 /// Input JSON from Claude Code hooks (stdin).
@@ -12,6 +12,30 @@ struct HookInput {
     hook_event_name: String,
     #[serde(default)]
     session_id: Option<String>,
+    #[serde(default)]
+    tool_name: Option<String>,
+    #[serde(default)]
+    tool_input: Option<serde_json::Value>,
+}
+
+/// Extract a short detail string from tool_input based on the tool name.
+fn extract_tool_detail(tool_name: &str, input: &serde_json::Value) -> Option<String> {
+    let s = match tool_name {
+        "Bash" => input.get("command")?.as_str()?,
+        "Read" | "Write" | "Edit" | "NotebookEdit" => input.get("file_path")?.as_str()?,
+        "Grep" => input.get("pattern")?.as_str()?,
+        "Glob" => input.get("pattern")?.as_str()?,
+        "WebFetch" => input.get("url")?.as_str()?,
+        "WebSearch" => input.get("query")?.as_str()?,
+        "Task" => {
+            if let Some(desc) = input.get("description").and_then(|v| v.as_str()) {
+                return Some(desc.to_string());
+            }
+            return None;
+        }
+        _ => return None,
+    };
+    Some(s.to_string())
 }
 
 /// Run the hook subcommand: read stdin JSON, determine event from hook_event_name, send state via IPC.
@@ -47,6 +71,17 @@ pub async fn run() -> Result<()> {
     let mut state = AgentState::new(pane_id, status);
     state.session_id = input.session_id;
     state.hook_event_name = Some(input.hook_event_name);
+    if let Some(ref name) = input.tool_name {
+        let detail = input
+            .tool_input
+            .as_ref()
+            .and_then(|inp| extract_tool_detail(name, inp));
+        state.tools = vec![ToolInfo {
+            name: name.clone(),
+            detail,
+        }];
+    }
+    state.tool_name = input.tool_name;
     ipc::send_state(&state).await?;
 
     Ok(())

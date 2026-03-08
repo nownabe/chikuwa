@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolInfo {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentStatus {
     Started,
@@ -31,6 +38,12 @@ pub struct AgentState {
     pub updated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hook_event_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ToolInfo>,
 }
 
 impl AgentState {
@@ -41,6 +54,9 @@ impl AgentState {
             state,
             updated_at: now(),
             hook_event_name: None,
+            tool_name: None,
+            tool_detail: None,
+            tools: Vec::new(),
         }
     }
 }
@@ -110,6 +126,9 @@ mod tests {
             state: AgentStatus::Running,
             updated_at: 1234567890,
             hook_event_name: None,
+            tool_name: None,
+            tool_detail: None,
+            tools: Vec::new(),
         };
 
         let json = serde_json::to_string(&state).unwrap();

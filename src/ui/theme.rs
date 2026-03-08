@@ -22,6 +22,7 @@ pub const ICON_NEOVIM: &str = "\u{e7c5}"; //
 pub const ICON_TERMINAL: &str = "\u{f489}"; //
 pub const ICON_WINDOW: &str = "\u{f10aa}"; // 󱂪
 pub const ICON_BOLT: &str = "\u{f0e7}"; //
+pub const ICON_TOOL: &str = "\u{f0ad}"; //
 pub const COLOR_YELLOW: Color = Color::Rgb(0xff, 0xd7, 0x00);
 
 pub fn status_icon(status: &AgentStatus, anim_frame: usize) -> &'static str {
