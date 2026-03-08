@@ -144,8 +144,7 @@ mod tests {
 
     #[test]
     fn test_extract_tool_detail_edit() {
-        let input =
-            serde_json::json!({"file_path": "/src/lib.rs", "old_string": "foo", "new_string": "bar"});
+        let input = serde_json::json!({"file_path": "/src/lib.rs", "old_string": "foo", "new_string": "bar"});
         assert_eq!(
             extract_tool_detail("Edit", &input),
             Some("/src/lib.rs".to_string())
@@ -163,7 +162,8 @@ mod tests {
 
     #[test]
     fn test_extract_tool_detail_notebook_edit() {
-        let input = serde_json::json!({"notebook_path": "/notebooks/test.ipynb", "new_source": "x = 1"});
+        let input =
+            serde_json::json!({"notebook_path": "/notebooks/test.ipynb", "new_source": "x = 1"});
         assert_eq!(
             extract_tool_detail("NotebookEdit", &input),
             Some("/notebooks/test.ipynb".to_string())
