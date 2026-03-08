@@ -61,7 +61,7 @@ pub async fn run() -> Result<()> {
             if stdin_buf.contains("permission_prompt") {
                 AgentStatus::Permission
             } else {
-                AgentStatus::Running
+                return Ok(());
             }
         }
         "SessionEnd" => AgentStatus::Ended,
