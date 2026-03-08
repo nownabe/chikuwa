@@ -176,7 +176,8 @@ pub(crate) fn shorten_relative_path(path: &str, max_len: usize) -> String {
 /// Compute a display label: relative path for shells, pane_title for nvim, command name otherwise.
 fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&str>) -> String {
     if is_shell(command) {
-        relative_path(path, toplevel)
+        let p = relative_path(path, toplevel);
+        if p.ends_with('/') { p } else { format!("{}/", p) }
     } else if command == "nvim" && !pane_title.is_empty() {
         pane_title.to_string()
     } else {
@@ -1079,7 +1080,7 @@ mod tests {
     fn test_display_label_shell_with_toplevel() {
         assert_eq!(
             display_label("zsh", "/home/user/project/src", "", Some("/home/user/project")),
-            "project/src"
+            "project/src/"
         );
         assert_eq!(
             display_label("zsh", "/home/user/project", "", Some("/home/user/project")),
@@ -1090,8 +1091,8 @@ mod tests {
     #[test]
     fn test_display_label_shell_without_toplevel() {
         std::env::set_var("HOME", "/home/user");
-        assert_eq!(display_label("zsh", "/home/user/projects/myapp", "", None), "~/p/myapp");
-        assert_eq!(display_label("bash", "/tmp", "", None), "/tmp");
+        assert_eq!(display_label("zsh", "/home/user/projects/myapp", "", None), "~/p/myapp/");
+        assert_eq!(display_label("bash", "/tmp", "", None), "/tmp/");
     }
 
     #[test]
@@ -1124,7 +1125,7 @@ mod tests {
         // When toplevel is None (mismatched session), falls back to shortened absolute path
         assert_eq!(
             display_label("zsh", "/home/user/src/github.com/nownabe/chikuwa/path/to/dir", "", None),
-            "~/s/g/n/c/p/t/dir"
+            "~/s/g/n/c/p/t/dir/"
         );
     }
 
