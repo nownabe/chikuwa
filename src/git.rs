@@ -9,6 +9,7 @@ pub struct GitInfo {
     pub branch: Option<String>,
     pub pr: Option<PrInfo>,
     pub repo_name: Option<String>,
+    pub toplevel: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +23,7 @@ struct CacheEntry {
     branch_fetched_at: Instant,
     pr_fetched_at: Instant,
     repo_name_fetched: bool,
+    toplevel_fetched: bool,
 }
 
 const BRANCH_TTL_SECS: u64 = 2;
@@ -66,6 +68,12 @@ impl GitInfoCache {
                 entry.repo_name_fetched = true;
             }
 
+            // Toplevel is fetched once and cached
+            if !entry.toplevel_fetched {
+                entry.git_info.toplevel = fetch_toplevel(path).await;
+                entry.toplevel_fetched = true;
+            }
+
             return Some(entry.git_info.clone());
         }
 
@@ -77,11 +85,13 @@ impl GitInfoCache {
             None
         };
         let repo_name = fetch_repo_name(path).await;
+        let toplevel = fetch_toplevel(path).await;
 
         let git_info = GitInfo {
             branch,
             pr,
             repo_name,
+            toplevel,
         };
         self.entries.insert(
             path_buf,
@@ -90,6 +100,7 @@ impl GitInfoCache {
                 branch_fetched_at: now,
                 pr_fetched_at: now,
                 repo_name_fetched: true,
+                toplevel_fetched: true,
             },
         );
 
@@ -147,6 +158,27 @@ async fn fetch_short_sha(path: &str) -> Option<String> {
         None
     } else {
         Some(sha)
+    }
+}
+
+/// Get the git repository root via `git rev-parse --show-toplevel`.
+async fn fetch_toplevel(path: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(path)
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let toplevel = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if toplevel.is_empty() {
+        None
+    } else {
+        Some(toplevel)
     }
 }
 
@@ -235,10 +267,12 @@ mod tests {
                     branch: Some("main".to_string()),
                     pr: None,
                     repo_name: Some("owner/repo1".to_string()),
+                    toplevel: None,
                 },
                 branch_fetched_at: Instant::now(),
                 pr_fetched_at: Instant::now(),
                 repo_name_fetched: true,
+                toplevel_fetched: true,
             },
         );
         cache.entries.insert(
@@ -248,10 +282,12 @@ mod tests {
                     branch: Some("dev".to_string()),
                     pr: None,
                     repo_name: None,
+                    toplevel: None,
                 },
                 branch_fetched_at: Instant::now(),
                 pr_fetched_at: Instant::now(),
                 repo_name_fetched: true,
+                toplevel_fetched: true,
             },
         );
 
@@ -274,6 +310,7 @@ mod tests {
                 title: "Fix IPC".to_string(),
             }),
             repo_name: Some("nownabe/chikuwa".to_string()),
+            toplevel: None,
         };
         let cloned = info.clone();
         assert_eq!(cloned.branch, Some("feature/x".to_string()));

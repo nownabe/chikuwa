@@ -1102,6 +1102,7 @@ mod tests {
                             branch: Some("main".to_string()),
                             pr: None,
                             repo_name: None,
+                            toplevel: None,
                         },
                     )],
                 },
@@ -1165,6 +1166,7 @@ mod tests {
                 title: "Fix bug".to_string(),
             }),
             repo_name: None,
+            toplevel: None,
         };
         let spans = git_display_spans(&gi);
         assert_eq!(spans.len(), 1);
@@ -1178,6 +1180,7 @@ mod tests {
             branch: Some("main".to_string()),
             pr: None,
             repo_name: None,
+            toplevel: None,
         };
         let spans = git_display_spans(&gi);
         assert_eq!(spans.len(), 1);
@@ -1190,6 +1193,7 @@ mod tests {
             branch: None,
             pr: None,
             repo_name: None,
+            toplevel: None,
         };
         let spans = git_display_spans(&gi);
         assert!(spans.is_empty());
@@ -1206,6 +1210,7 @@ mod tests {
                 branch: Some("main".to_string()),
                 pr: None,
                 repo_name: None,
+                toplevel: None,
             }),
             pane_current_path: None,
             pane_current_command: None,

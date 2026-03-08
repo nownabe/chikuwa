@@ -21,25 +21,95 @@ use crate::ipc;
 use crate::tmux::{client as tmux_client, types::TmuxSession};
 use crate::ui::{status_bar, tree};
 
-/// Extract the filename from an nvim pane_title.
+/// Extract the filename and optional directory from an nvim pane_title.
 /// Nvim titles are typically formatted as "filename (dir) - Nvim".
-/// Plugin UIs like NeoTree produce titles like "neo-tree filesystem [1]".
-/// Returns Some(filename) for valid file titles, None for plugin UIs.
-fn extract_nvim_filename(title: &str) -> Option<&str> {
+/// Plugin UIs like NeoTree produce titles like "neo-tree filesystem [1] - Nvim".
+/// Returns Some((filename, Option<dir>)) for valid file titles, None for plugin UIs.
+fn extract_nvim_file_info(title: &str) -> Option<(&str, Option<&str>)> {
     // Nvim standard format: "filename (dir) - Nvim" or "filename - Nvim"
     if let Some(rest) = title.strip_suffix(" - Nvim") {
-        // Take everything before the first " (" (directory part)
-        let name = rest.split(" (").next().unwrap_or(rest);
-        if !name.is_empty() && !name.contains(' ') {
-            return Some(name);
+        // Try to extract "filename (dir)"
+        if let Some(paren_start) = rest.find(" (") {
+            let name = &rest[..paren_start];
+            if !name.is_empty() && !name.contains(' ') {
+                let dir = &rest[paren_start + 2..];
+                let dir = dir.strip_suffix(')').unwrap_or(dir);
+                return Some((name, Some(dir)));
+            }
+            return None;
+        }
+        // "filename - Nvim" without directory
+        if !rest.is_empty() && !rest.contains(' ') {
+            return Some((rest, None));
         }
         return None;
     }
-    // Bare filename without " - Nvim" suffix (no spaces, not empty, not term://)
+    // Bare filename without " - Nvim" suffix
     if !title.is_empty() && !title.contains(' ') && !title.starts_with("term://") {
-        return Some(title);
+        return Some((title, None));
     }
     None
+}
+
+/// Compute relative path from git toplevel, abbreviating directories
+/// progressively from left if the result exceeds max_len.
+fn relative_nvim_path(filename: &str, dir: Option<&str>, toplevel: Option<&str>) -> String {
+    let Some(dir) = dir else {
+        return filename.to_string();
+    };
+    let Some(toplevel) = toplevel else {
+        return filename.to_string();
+    };
+
+    // Expand ~ in dir
+    let home = std::env::var("HOME").unwrap_or_default();
+    let expanded_dir = if dir.starts_with("~/") {
+        format!("{}{}", home, &dir[1..])
+    } else if dir == "~" {
+        home.clone()
+    } else {
+        dir.to_string()
+    };
+
+    // Compute relative path from toplevel
+    let full_path = format!("{}/{}", expanded_dir, filename);
+    let rel = if let Some(rest) = full_path.strip_prefix(toplevel) {
+        rest.strip_prefix('/').unwrap_or(rest)
+    } else {
+        return filename.to_string();
+    };
+
+    if rel.is_empty() {
+        return filename.to_string();
+    }
+
+    shorten_relative_path(rel, 30)
+}
+
+/// Abbreviate intermediate directory components progressively from left
+/// until the path fits within max_len. The last component (filename) is never abbreviated.
+fn shorten_relative_path(path: &str, max_len: usize) -> String {
+    if path.len() <= max_len {
+        return path.to_string();
+    }
+
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() <= 1 {
+        return path.to_string();
+    }
+
+    let mut abbreviated: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
+    for i in 0..abbreviated.len() - 1 {
+        if let Some(c) = abbreviated[i].chars().next() {
+            abbreviated[i] = c.to_string();
+        }
+        let result = abbreviated.join("/");
+        if result.len() <= max_len {
+            return result;
+        }
+    }
+
+    abbreviated.join("/")
 }
 
 pub struct App {
@@ -131,9 +201,9 @@ impl App {
         }
     }
 
-    /// For nvim panes, extract the filename from the title and cache it.
-    /// Plugin UI titles (e.g. "neo-tree filesystem [1]") are replaced with
-    /// the last known filename from cache.
+    /// For nvim panes, extract the filename from the title and compute
+    /// relative path from git toplevel. Plugin UI titles are replaced with
+    /// the last known path from cache.
     fn fixup_nvim_titles(&mut self) {
         for session in &mut self.sessions {
             for window in &mut session.windows {
@@ -141,11 +211,15 @@ impl App {
                     if pane.pane_current_command != "nvim" {
                         continue;
                     }
-                    if let Some(filename) = extract_nvim_filename(&pane.pane_title) {
-                        let filename = filename.to_string();
+                    if let Some((filename, dir)) = extract_nvim_file_info(&pane.pane_title) {
+                        let toplevel = pane
+                            .git_info
+                            .as_ref()
+                            .and_then(|gi| gi.toplevel.as_deref());
+                        let label = relative_nvim_path(filename, dir, toplevel);
                         self.nvim_title_cache
-                            .insert(pane.pane_id.clone(), filename.clone());
-                        pane.pane_title = filename;
+                            .insert(pane.pane_id.clone(), label.clone());
+                        pane.pane_title = label;
                     } else if let Some(cached) = self.nvim_title_cache.get(&pane.pane_id) {
                         pane.pane_title = cached.clone();
                     }
@@ -468,62 +542,126 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_nvim_filename_standard_format() {
-        // "filename (dir) - Nvim"
+    fn test_extract_nvim_file_info_standard_format() {
         assert_eq!(
-            extract_nvim_filename("theme.rs (~/src/github.com/nownabe/chikuwa/src/ui) - Nvim"),
-            Some("theme.rs")
+            extract_nvim_file_info("theme.rs (~/src/project/src/ui) - Nvim"),
+            Some(("theme.rs", Some("~/src/project/src/ui")))
         );
         assert_eq!(
-            extract_nvim_filename("CLAUDE.md (~/src/github.com/nownabe/chikuwa/.claude) - Nvim"),
-            Some("CLAUDE.md")
+            extract_nvim_file_info("CLAUDE.md (~/src/project/.claude) - Nvim"),
+            Some(("CLAUDE.md", Some("~/src/project/.claude")))
         );
     }
 
     #[test]
-    fn test_extract_nvim_filename_no_dir() {
-        // "filename - Nvim"
-        assert_eq!(extract_nvim_filename("app.rs - Nvim"), Some("app.rs"));
+    fn test_extract_nvim_file_info_no_dir() {
+        assert_eq!(
+            extract_nvim_file_info("app.rs - Nvim"),
+            Some(("app.rs", None))
+        );
     }
 
     #[test]
-    fn test_extract_nvim_filename_bare() {
-        assert_eq!(extract_nvim_filename("app.rs"), Some("app.rs"));
-        assert_eq!(extract_nvim_filename("Cargo.toml"), Some("Cargo.toml"));
+    fn test_extract_nvim_file_info_bare() {
+        assert_eq!(extract_nvim_file_info("app.rs"), Some(("app.rs", None)));
     }
 
     #[test]
-    fn test_extract_nvim_filename_invalid() {
-        assert_eq!(extract_nvim_filename(""), None);
-        assert_eq!(extract_nvim_filename("neo-tree filesystem [1]"), None);
-        assert_eq!(extract_nvim_filename("neo-tree filesystem [1] - Nvim"), None);
-        assert_eq!(extract_nvim_filename("[No Name]"), None);
-        assert_eq!(extract_nvim_filename("[No Name] - Nvim"), None);
-        assert_eq!(extract_nvim_filename("term://something"), None);
+    fn test_extract_nvim_file_info_invalid() {
+        assert_eq!(extract_nvim_file_info(""), None);
+        assert_eq!(extract_nvim_file_info("neo-tree filesystem [1]"), None);
+        assert_eq!(
+            extract_nvim_file_info("neo-tree filesystem [1] - Nvim"),
+            None
+        );
+        assert_eq!(extract_nvim_file_info("[No Name] - Nvim"), None);
+        assert_eq!(extract_nvim_file_info("term://something"), None);
     }
 
     #[test]
-    fn test_fixup_extracts_filename_from_nvim_title() {
+    fn test_relative_nvim_path_with_toplevel() {
+        std::env::set_var("HOME", "/home/user");
+        assert_eq!(
+            relative_nvim_path(
+                "theme.rs",
+                Some("~/src/project/src/ui"),
+                Some("/home/user/src/project")
+            ),
+            "src/ui/theme.rs"
+        );
+    }
+
+    #[test]
+    fn test_relative_nvim_path_no_dir() {
+        assert_eq!(relative_nvim_path("app.rs", None, Some("/project")), "app.rs");
+    }
+
+    #[test]
+    fn test_relative_nvim_path_no_toplevel() {
+        assert_eq!(
+            relative_nvim_path("app.rs", Some("~/project/src"), None),
+            "app.rs"
+        );
+    }
+
+    #[test]
+    fn test_relative_nvim_path_abbreviation() {
+        std::env::set_var("HOME", "/home/user");
+        // A long relative path should be abbreviated
+        let result = relative_nvim_path(
+            "very_long_filename.rs",
+            Some("~/project/src/deeply/nested/directory"),
+            Some("/home/user/project"),
+        );
+        // "src/deeply/nested/directory/very_long_filename.rs" is > 30 chars
+        // Should abbreviate to something like "s/d/n/directory/very_long_filename.rs"
+        assert!(result.len() <= 30 || !result.contains("deeply"));
+        assert!(result.ends_with("very_long_filename.rs"));
+    }
+
+    #[test]
+    fn test_shorten_relative_path() {
+        assert_eq!(shorten_relative_path("src/ui/theme.rs", 30), "src/ui/theme.rs");
+        assert_eq!(
+            shorten_relative_path("src/deeply/nested/dir/file.rs", 20),
+            "s/d/n/dir/file.rs"
+        );
+        assert_eq!(shorten_relative_path("file.rs", 30), "file.rs");
+    }
+
+    #[test]
+    fn test_fixup_computes_relative_path() {
+        std::env::set_var("HOME", "/home/user");
         let mut app = App::new();
-        app.sessions = vec![make_session(vec![make_nvim_pane(
-            "%0",
-            "app.rs (~/project/src) - Nvim",
-        )])];
+        let mut pane = make_nvim_pane("%0", "theme.rs (~/project/src/ui) - Nvim");
+        pane.git_info = Some(crate::git::GitInfo {
+            branch: None,
+            pr: None,
+            repo_name: None,
+            toplevel: Some("/home/user/project".to_string()),
+        });
+        app.sessions = vec![make_session(vec![pane])];
 
         app.fixup_nvim_titles();
 
-        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "app.rs");
-        assert_eq!(app.sessions[0].windows[0].panes[0].pane_title, "app.rs");
+        assert_eq!(
+            app.sessions[0].windows[0].panes[0].pane_title,
+            "src/ui/theme.rs"
+        );
     }
 
     #[test]
     fn test_fixup_restores_cached_title_for_plugin_ui() {
+        std::env::set_var("HOME", "/home/user");
         let mut app = App::new();
-        // First refresh: valid title → cached
-        app.sessions = vec![make_session(vec![make_nvim_pane(
-            "%0",
-            "app.rs (~/project/src) - Nvim",
-        )])];
+        let mut pane = make_nvim_pane("%0", "app.rs (~/project/src) - Nvim");
+        pane.git_info = Some(crate::git::GitInfo {
+            branch: None,
+            pr: None,
+            repo_name: None,
+            toplevel: Some("/home/user/project".to_string()),
+        });
+        app.sessions = vec![make_session(vec![pane])];
         app.fixup_nvim_titles();
 
         // Second refresh: plugin UI title → restored from cache
@@ -533,20 +671,21 @@ mod tests {
         )])];
         app.fixup_nvim_titles();
 
-        assert_eq!(app.sessions[0].windows[0].panes[0].pane_title, "app.rs");
+        assert_eq!(
+            app.sessions[0].windows[0].panes[0].pane_title,
+            "src/app.rs"
+        );
     }
 
     #[test]
     fn test_fixup_no_cache_leaves_invalid_title() {
         let mut app = App::new();
-        // No prior cache, plugin UI title stays as-is
         app.sessions = vec![make_session(vec![make_nvim_pane(
             "%0",
             "neo-tree filesystem [1]",
         )])];
         app.fixup_nvim_titles();
 
-        // Title unchanged (no cache to restore from), display_label will fall back to "nvim"
         assert_eq!(
             app.sessions[0].windows[0].panes[0].pane_title,
             "neo-tree filesystem [1]"
@@ -567,20 +706,28 @@ mod tests {
 
     #[test]
     fn test_fixup_updates_cache_on_file_change() {
+        std::env::set_var("HOME", "/home/user");
         let mut app = App::new();
-        app.sessions = vec![make_session(vec![make_nvim_pane(
-            "%0",
-            "app.rs (~/project/src) - Nvim",
-        )])];
+        let mut pane = make_nvim_pane("%0", "app.rs (~/project/src) - Nvim");
+        pane.git_info = Some(crate::git::GitInfo {
+            branch: None,
+            pr: None,
+            repo_name: None,
+            toplevel: Some("/home/user/project".to_string()),
+        });
+        app.sessions = vec![make_session(vec![pane])];
         app.fixup_nvim_titles();
-        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "app.rs");
+        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "src/app.rs");
 
-        // Switch to another file
-        app.sessions = vec![make_session(vec![make_nvim_pane(
-            "%0",
-            "main.rs (~/project/src) - Nvim",
-        )])];
+        let mut pane2 = make_nvim_pane("%0", "main.rs (~/project/src) - Nvim");
+        pane2.git_info = Some(crate::git::GitInfo {
+            branch: None,
+            pr: None,
+            repo_name: None,
+            toplevel: Some("/home/user/project".to_string()),
+        });
+        app.sessions = vec![make_session(vec![pane2])];
         app.fixup_nvim_titles();
-        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "main.rs");
+        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "src/main.rs");
     }
 }
