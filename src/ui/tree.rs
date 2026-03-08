@@ -163,8 +163,16 @@ pub(crate) fn shorten_relative_path(path: &str, max_len: usize) -> String {
     // and stop before last component (filename or trailing dir)
     let mut abbreviated: Vec<String> = parts.iter().map(|s| s.to_string()).collect();
     for i in 1..abbreviated.len() - 1 {
-        if let Some(c) = abbreviated[i].chars().next() {
-            abbreviated[i] = c.to_string();
+        let mut chars = abbreviated[i].chars();
+        if let Some(c) = chars.next() {
+            // For dotfiles, keep the dot plus the next character (e.g. ".claude" → ".c")
+            if c == '.' {
+                if let Some(c2) = chars.next() {
+                    abbreviated[i] = format!(".{}", c2);
+                }
+            } else {
+                abbreviated[i] = c.to_string();
+            }
         }
         let result = abbreviated.join("/");
         if result.len() <= max_len {
@@ -1297,6 +1305,11 @@ mod tests {
         );
         assert_eq!(shorten_relative_path("file.rs", 30), "file.rs");
         assert_eq!(shorten_relative_path("repo/file.rs", 5), "repo/file.rs");
+        // Dotfile directories keep dot + first letter (e.g. ".claude" → ".c")
+        assert_eq!(
+            shorten_relative_path("chikuwa/.claude/settings.local.json", 30),
+            "chikuwa/.c/settings.local.json"
+        );
     }
 
     #[test]
