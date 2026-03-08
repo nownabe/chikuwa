@@ -10,7 +10,10 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 use ratatui::Terminal;
 use tokio::sync::mpsc;
 
@@ -19,7 +22,7 @@ use crate::event::{self, Action, AppEvent};
 use crate::git::GitInfoCache;
 use crate::ipc;
 use crate::tmux::{client as tmux_client, types::TmuxSession};
-use crate::ui::{status_bar, tree};
+use crate::ui::{status_bar, theme, tree};
 
 /// Extract the filename and optional directory from an nvim pane_title.
 /// Nvim titles are typically formatted as "filename (dir) - Nvim".
@@ -370,7 +373,12 @@ pub async fn run() -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        crossterm::terminal::SetTitle("🐧⚡️chikuwa ⚡️🐧")
+    )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -433,12 +441,30 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(3), Constraint::Length(2)])
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(3),
+                    Constraint::Length(2),
+                ])
                 .split(size);
 
+            // Render title bar
+            let title = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(
+                        "🐧⚡️chikuwa ⚡️🐧",
+                        Style::default()
+                            .fg(theme::COLOR_WHITE)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+            ];
+            f.render_widget(Paragraph::new(title).alignment(Alignment::Center), chunks[0]);
+
             // Adjust scroll for visible area (visual rows, no outer border)
-            let visible_height = chunks[0].height as usize;
-            app.last_width = chunks[0].width;
+            let visible_height = chunks[1].height as usize;
+            app.last_width = chunks[1].width;
             let selected_visual =
                 tree::item_to_visual_row(&app.tree_items, app.selected, app.last_width);
             if selected_visual >= app.scroll_offset + visible_height {
@@ -451,7 +477,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             // Render tree with inline agent status on single-pane windows
             tree::render(
                 f,
-                chunks[0],
+                chunks[1],
                 &app.tree_items,
                 app.selected,
                 app.scroll_offset,
@@ -459,7 +485,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             );
 
             // Render status bar
-            status_bar::render(f, chunks[1], &app.sessions);
+            status_bar::render(f, chunks[2], &app.sessions);
         })?;
 
         if app.should_quit {
