@@ -486,27 +486,36 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                         )
                     })
                     .collect();
-                let mut spans = vec![Span::styled(
-                    "🐧 ⚡️",
-                    Style::default()
-                        .fg(theme::COLOR_WHITE)
-                        .add_modifier(Modifier::BOLD),
-                )];
+                let bolt_style = Style::default()
+                    .fg(theme::COLOR_YELLOW)
+                    .add_modifier(Modifier::BOLD);
+                let white_style = Style::default()
+                    .fg(theme::COLOR_WHITE)
+                    .add_modifier(Modifier::BOLD);
+                let mut spans = vec![
+                    Span::styled("🐧 ", white_style),
+                    Span::styled(theme::ICON_BOLT, bolt_style),
+                    Span::styled("  ", white_style),
+                ];
                 spans.extend(chikuwa_spans);
-                spans.push(Span::styled(
-                    " ⚡️🐧",
-                    Style::default()
-                        .fg(theme::COLOR_WHITE)
-                        .add_modifier(Modifier::BOLD),
-                ));
+                spans.push(Span::styled("  ", white_style));
+                spans.push(Span::styled(theme::ICON_BOLT, bolt_style));
+                spans.push(Span::styled(" 🐧", white_style));
                 spans
             } else {
-                vec![Span::styled(
-                    "🐧 ⚡️chikuwa ⚡️🐧",
-                    Style::default()
-                        .fg(theme::COLOR_WHITE)
-                        .add_modifier(Modifier::BOLD),
-                )]
+                let bolt_style = Style::default()
+                    .fg(theme::COLOR_YELLOW)
+                    .add_modifier(Modifier::BOLD);
+                let white_style = Style::default()
+                    .fg(theme::COLOR_WHITE)
+                    .add_modifier(Modifier::BOLD);
+                vec![
+                    Span::styled("🐧 ", white_style),
+                    Span::styled(theme::ICON_BOLT, bolt_style),
+                    Span::styled("  chikuwa  ", white_style),
+                    Span::styled(theme::ICON_BOLT, bolt_style),
+                    Span::styled(" 🐧", white_style),
+                ]
             };
             let title = vec![Line::from(""), Line::from(title_spans)];
             f.render_widget(
