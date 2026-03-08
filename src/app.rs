@@ -21,6 +21,27 @@ use crate::ipc;
 use crate::tmux::{client as tmux_client, types::TmuxSession};
 use crate::ui::{status_bar, tree};
 
+/// Extract the filename from an nvim pane_title.
+/// Nvim titles are typically formatted as "filename (dir) - Nvim".
+/// Plugin UIs like NeoTree produce titles like "neo-tree filesystem [1]".
+/// Returns Some(filename) for valid file titles, None for plugin UIs.
+fn extract_nvim_filename(title: &str) -> Option<&str> {
+    // Nvim standard format: "filename (dir) - Nvim" or "filename - Nvim"
+    if let Some(rest) = title.strip_suffix(" - Nvim") {
+        // Take everything before the first " (" (directory part)
+        let name = rest.split(" (").next().unwrap_or(rest);
+        if !name.is_empty() && !name.contains(' ') {
+            return Some(name);
+        }
+        return None;
+    }
+    // Bare filename without " - Nvim" suffix (no spaces, not empty, not term://)
+    if !title.is_empty() && !title.contains(' ') && !title.starts_with("term://") {
+        return Some(title);
+    }
+    None
+}
+
 pub struct App {
     sessions: Vec<TmuxSession>,
     tree_items: Vec<tree::TreeItem>,
@@ -31,6 +52,8 @@ pub struct App {
     agent_states: HashMap<String, AgentState>,
     git_cache: GitInfoCache,
     anim_frame: usize,
+    /// Cache of last valid nvim file title per pane_id.
+    nvim_title_cache: HashMap<String, String>,
 }
 
 impl App {
@@ -45,6 +68,7 @@ impl App {
             agent_states: HashMap::new(),
             git_cache: GitInfoCache::new(),
             anim_frame: 0,
+            nvim_title_cache: HashMap::new(),
         }
     }
 
@@ -54,6 +78,7 @@ impl App {
             Ok(sessions) => {
                 self.sessions = sessions;
                 self.merge_git_info().await;
+                self.fixup_nvim_titles();
                 self.rebuild_tree();
             }
             Err(_) => {
@@ -103,6 +128,29 @@ impl App {
                 .iter()
                 .flat_map(|w| w.panes.iter())
                 .find_map(|p| p.git_info.as_ref().and_then(|gi| gi.repo_name.clone()));
+        }
+    }
+
+    /// For nvim panes, extract the filename from the title and cache it.
+    /// Plugin UI titles (e.g. "neo-tree filesystem [1]") are replaced with
+    /// the last known filename from cache.
+    fn fixup_nvim_titles(&mut self) {
+        for session in &mut self.sessions {
+            for window in &mut session.windows {
+                for pane in &mut window.panes {
+                    if pane.pane_current_command != "nvim" {
+                        continue;
+                    }
+                    if let Some(filename) = extract_nvim_filename(&pane.pane_title) {
+                        let filename = filename.to_string();
+                        self.nvim_title_cache
+                            .insert(pane.pane_id.clone(), filename.clone());
+                        pane.pane_title = filename;
+                    } else if let Some(cached) = self.nvim_title_cache.get(&pane.pane_id) {
+                        pane.pane_title = cached.clone();
+                    }
+                }
+            }
         }
     }
 
@@ -384,5 +432,155 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tmux::types::{TmuxPane, TmuxSession, TmuxWindow};
+
+    fn make_nvim_pane(pane_id: &str, title: &str) -> TmuxPane {
+        TmuxPane {
+            pane_id: pane_id.to_string(),
+            pane_index: 0,
+            pane_current_command: "nvim".to_string(),
+            pane_current_path: "/home/user".to_string(),
+            pane_title: title.to_string(),
+            pane_active: true,
+            agent_state: None,
+            git_info: None,
+        }
+    }
+
+    fn make_session(panes: Vec<TmuxPane>) -> TmuxSession {
+        TmuxSession {
+            session_name: "test".to_string(),
+            session_attached: true,
+            windows: vec![TmuxWindow {
+                window_index: 0,
+                window_name: "nvim".to_string(),
+                window_active: true,
+                panes,
+            }],
+            repo_name: None,
+        }
+    }
+
+    #[test]
+    fn test_extract_nvim_filename_standard_format() {
+        // "filename (dir) - Nvim"
+        assert_eq!(
+            extract_nvim_filename("theme.rs (~/src/github.com/nownabe/chikuwa/src/ui) - Nvim"),
+            Some("theme.rs")
+        );
+        assert_eq!(
+            extract_nvim_filename("CLAUDE.md (~/src/github.com/nownabe/chikuwa/.claude) - Nvim"),
+            Some("CLAUDE.md")
+        );
+    }
+
+    #[test]
+    fn test_extract_nvim_filename_no_dir() {
+        // "filename - Nvim"
+        assert_eq!(extract_nvim_filename("app.rs - Nvim"), Some("app.rs"));
+    }
+
+    #[test]
+    fn test_extract_nvim_filename_bare() {
+        assert_eq!(extract_nvim_filename("app.rs"), Some("app.rs"));
+        assert_eq!(extract_nvim_filename("Cargo.toml"), Some("Cargo.toml"));
+    }
+
+    #[test]
+    fn test_extract_nvim_filename_invalid() {
+        assert_eq!(extract_nvim_filename(""), None);
+        assert_eq!(extract_nvim_filename("neo-tree filesystem [1]"), None);
+        assert_eq!(extract_nvim_filename("neo-tree filesystem [1] - Nvim"), None);
+        assert_eq!(extract_nvim_filename("[No Name]"), None);
+        assert_eq!(extract_nvim_filename("[No Name] - Nvim"), None);
+        assert_eq!(extract_nvim_filename("term://something"), None);
+    }
+
+    #[test]
+    fn test_fixup_extracts_filename_from_nvim_title() {
+        let mut app = App::new();
+        app.sessions = vec![make_session(vec![make_nvim_pane(
+            "%0",
+            "app.rs (~/project/src) - Nvim",
+        )])];
+
+        app.fixup_nvim_titles();
+
+        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "app.rs");
+        assert_eq!(app.sessions[0].windows[0].panes[0].pane_title, "app.rs");
+    }
+
+    #[test]
+    fn test_fixup_restores_cached_title_for_plugin_ui() {
+        let mut app = App::new();
+        // First refresh: valid title → cached
+        app.sessions = vec![make_session(vec![make_nvim_pane(
+            "%0",
+            "app.rs (~/project/src) - Nvim",
+        )])];
+        app.fixup_nvim_titles();
+
+        // Second refresh: plugin UI title → restored from cache
+        app.sessions = vec![make_session(vec![make_nvim_pane(
+            "%0",
+            "neo-tree filesystem [1]",
+        )])];
+        app.fixup_nvim_titles();
+
+        assert_eq!(app.sessions[0].windows[0].panes[0].pane_title, "app.rs");
+    }
+
+    #[test]
+    fn test_fixup_no_cache_leaves_invalid_title() {
+        let mut app = App::new();
+        // No prior cache, plugin UI title stays as-is
+        app.sessions = vec![make_session(vec![make_nvim_pane(
+            "%0",
+            "neo-tree filesystem [1]",
+        )])];
+        app.fixup_nvim_titles();
+
+        // Title unchanged (no cache to restore from), display_label will fall back to "nvim"
+        assert_eq!(
+            app.sessions[0].windows[0].panes[0].pane_title,
+            "neo-tree filesystem [1]"
+        );
+    }
+
+    #[test]
+    fn test_fixup_skips_non_nvim_panes() {
+        let mut app = App::new();
+        let mut pane = make_nvim_pane("%0", "some title with spaces");
+        pane.pane_current_command = "zsh".to_string();
+        app.sessions = vec![make_session(vec![pane])];
+
+        app.fixup_nvim_titles();
+
+        assert!(app.nvim_title_cache.is_empty());
+    }
+
+    #[test]
+    fn test_fixup_updates_cache_on_file_change() {
+        let mut app = App::new();
+        app.sessions = vec![make_session(vec![make_nvim_pane(
+            "%0",
+            "app.rs (~/project/src) - Nvim",
+        )])];
+        app.fixup_nvim_titles();
+        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "app.rs");
+
+        // Switch to another file
+        app.sessions = vec![make_session(vec![make_nvim_pane(
+            "%0",
+            "main.rs (~/project/src) - Nvim",
+        )])];
+        app.fixup_nvim_titles();
+        assert_eq!(app.nvim_title_cache.get("%0").unwrap(), "main.rs");
     }
 }

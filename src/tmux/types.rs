@@ -9,6 +9,7 @@ pub struct TmuxPane {
     pub pane_index: u32,
     pub pane_current_command: String,
     pub pane_current_path: String,
+    pub pane_title: String,
     pub pane_active: bool,
     pub agent_state: Option<AgentState>,
     pub git_info: Option<GitInfo>,

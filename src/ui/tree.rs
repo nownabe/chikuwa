@@ -30,6 +30,8 @@ pub enum TreeItem {
         pane_current_path: Option<String>,
         /// Current command of the (single) pane, for display_label.
         pane_current_command: Option<String>,
+        /// Pane title (e.g. nvim sets this to the filename).
+        pane_title: Option<String>,
         /// Whether this window has more than one pane.
         has_multiple_panes: bool,
     },
@@ -111,10 +113,12 @@ fn shorten_path(path: &str) -> String {
     format!("{}/{}", prefix, parts.join("/"))
 }
 
-/// Compute a display label: shortened path for shells, command name otherwise.
-fn display_label(command: &str, path: &str) -> String {
+/// Compute a display label: shortened path for shells, pane_title for nvim, command name otherwise.
+fn display_label(command: &str, path: &str, pane_title: &str) -> String {
     if is_shell(command) {
         shorten_path(path)
+    } else if command == "nvim" && !pane_title.is_empty() {
+        pane_title.to_string()
     } else {
         command.to_string()
     }
@@ -157,7 +161,7 @@ pub fn flatten(
         for window in session.windows.iter() {
 
             // For single-pane windows, embed pane details in the Window item
-            let (agent_state, git_info, pane_current_path, pane_current_command) =
+            let (agent_state, git_info, pane_current_path, pane_current_command, pane_title) =
                 if window.panes.len() == 1 {
                     let pane = &window.panes[0];
                     (
@@ -165,9 +169,10 @@ pub fn flatten(
                         pane.git_info.clone(),
                         Some(pane.pane_current_path.clone()),
                         Some(pane.pane_current_command.clone()),
+                        Some(pane.pane_title.clone()),
                     )
                 } else {
-                    (None, None, None, None)
+                    (None, None, None, None, None)
                 };
 
             items.push(TreeItem::Window {
@@ -178,6 +183,7 @@ pub fn flatten(
                 git_info,
                 pane_current_path,
                 pane_current_command,
+                pane_title,
                 has_multiple_panes: window.panes.len() > 1,
             });
 
@@ -654,6 +660,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             agent_state,
             pane_current_path,
             pane_current_command,
+            pane_title,
             has_multiple_panes,
             ..
         } => {
@@ -669,7 +676,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
             if !*has_multiple_panes {
                 let label =
                     if let (Some(cmd), Some(path)) = (pane_current_command, pane_current_path) {
-                        display_label(cmd, path)
+                        display_label(cmd, path, pane_title.as_deref().unwrap_or(""))
                     } else {
                         window_name.clone()
                     };
@@ -706,7 +713,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, anim_frame: usi
                 Span::styled(format!("{} ", icon), icon_style),
             ];
 
-            let label = display_label(&pane.pane_current_command, &pane.pane_current_path);
+            let label = display_label(&pane.pane_current_command, &pane.pane_current_path, &pane.pane_title);
             let needs_attention = matches!(
                 pane.agent_state.as_ref().map(|a| &a.state),
                 Some(AgentStatus::Permission | AgentStatus::Waiting)
@@ -768,6 +775,7 @@ mod tests {
             pane_index: 0,
             pane_current_command: command.to_string(),
             pane_current_path: "/home/user".to_string(),
+            pane_title: String::new(),
             pane_active: true,
             agent_state: agent,
             git_info: None,
@@ -780,6 +788,7 @@ mod tests {
             pane_index: 0,
             pane_current_command: command.to_string(),
             pane_current_path: "/home/user".to_string(),
+            pane_title: String::new(),
             pane_active: true,
             agent_state: None,
             git_info: Some(git_info),
@@ -920,6 +929,7 @@ mod tests {
             git_info: None,
             pane_current_path: None,
             pane_current_command: None,
+            pane_title: None,
             has_multiple_panes: false,
         };
         assert_eq!(item.tmux_target(), "main:2");
@@ -969,15 +979,21 @@ mod tests {
     #[test]
     fn test_display_label_shell() {
         std::env::set_var("HOME", "/home/user");
-        assert_eq!(display_label("zsh", "/home/user/projects/myapp"), "~/p/myapp");
-        assert_eq!(display_label("bash", "/tmp"), "/tmp");
-        assert_eq!(display_label("fish", "/"), "/");
+        assert_eq!(display_label("zsh", "/home/user/projects/myapp", ""), "~/p/myapp");
+        assert_eq!(display_label("bash", "/tmp", ""), "/tmp");
+        assert_eq!(display_label("fish", "/", ""), "/");
+    }
+
+    #[test]
+    fn test_display_label_nvim() {
+        assert_eq!(display_label("nvim", "/home/user", "app.rs"), "app.rs");
+        assert_eq!(display_label("nvim", "/home/user", ""), "nvim");
     }
 
     #[test]
     fn test_display_label_non_shell() {
-        assert_eq!(display_label("vim", "/home/user"), "vim");
-        assert_eq!(display_label("node", "/home/user/project"), "node");
+        assert_eq!(display_label("vim", "/home/user", ""), "vim");
+        assert_eq!(display_label("node", "/home/user/project", ""), "node");
     }
 
     #[test]
@@ -1129,6 +1145,7 @@ mod tests {
                 git_info: None,
                 pane_current_path: None,
                 pane_current_command: None,
+                pane_title: None,
                 has_multiple_panes: false,
             },
         ];
@@ -1192,6 +1209,7 @@ mod tests {
             }),
             pane_current_path: None,
             pane_current_command: None,
+            pane_title: None,
             has_multiple_panes: false,
         };
         assert!(item_has_git_info(&with_branch));
@@ -1204,6 +1222,7 @@ mod tests {
             git_info: None,
             pane_current_path: None,
             pane_current_command: None,
+            pane_title: None,
             has_multiple_panes: false,
         };
         assert!(!item_has_git_info(&without));
