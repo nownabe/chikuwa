@@ -1,5 +1,6 @@
 [workspace]
 release_always = false
+git_release_draft = true
 
 [changelog]
 commit_parsers = [
