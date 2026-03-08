@@ -79,13 +79,42 @@ fn is_shell(command: &str) -> bool {
     )
 }
 
-/// Compute a display label: directory basename for shells, command name otherwise.
+/// Shorten a path by abbreviating intermediate components to their first char.
+/// e.g. "/home/user/src/github.com/nownabe/chikuwa" → "~/s/g/n/chikuwa"
+fn shorten_path(path: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let (prefix, rest) = if !home.is_empty() && path.starts_with(&home) {
+        ("~", &path[home.len()..])
+    } else {
+        ("", path)
+    };
+
+    let components: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+    if components.is_empty() {
+        return if prefix.is_empty() {
+            "/".to_string()
+        } else {
+            prefix.to_string()
+        };
+    }
+
+    let mut parts = Vec::with_capacity(components.len());
+    for (i, comp) in components.iter().enumerate() {
+        if i == components.len() - 1 {
+            parts.push(comp.to_string());
+        } else {
+            // First character (handles multi-byte chars)
+            parts.push(comp.chars().next().unwrap().to_string());
+        }
+    }
+
+    format!("{}/{}", prefix, parts.join("/"))
+}
+
+/// Compute a display label: shortened path for shells, command name otherwise.
 fn display_label(command: &str, path: &str) -> String {
     if is_shell(command) {
-        std::path::Path::new(path)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| command.to_string())
+        shorten_path(path)
     } else {
         command.to_string()
     }
@@ -928,10 +957,21 @@ mod tests {
     }
 
     #[test]
+    fn test_shorten_path() {
+        std::env::set_var("HOME", "/home/user");
+        assert_eq!(shorten_path("/home/user/src/github.com/nownabe/chikuwa"), "~/s/g/n/chikuwa");
+        assert_eq!(shorten_path("/home/user/projects"), "~/projects");
+        assert_eq!(shorten_path("/home/user"), "~");
+        assert_eq!(shorten_path("/tmp/foo/bar"), "/t/f/bar");
+        assert_eq!(shorten_path("/"), "/");
+    }
+
+    #[test]
     fn test_display_label_shell() {
-        assert_eq!(display_label("zsh", "/home/user/projects/myapp"), "myapp");
-        assert_eq!(display_label("bash", "/tmp"), "tmp");
-        assert_eq!(display_label("fish", "/"), "fish");
+        std::env::set_var("HOME", "/home/user");
+        assert_eq!(display_label("zsh", "/home/user/projects/myapp"), "~/p/myapp");
+        assert_eq!(display_label("bash", "/tmp"), "/tmp");
+        assert_eq!(display_label("fish", "/"), "/");
     }
 
     #[test]
