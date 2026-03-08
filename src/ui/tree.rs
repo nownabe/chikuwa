@@ -339,6 +339,44 @@ pub fn flatten(
     items
 }
 
+/// Find the index of the active (focused) item in the flattened tree.
+/// Looks for the attached session's active window's active pane.
+pub fn find_active_index(
+    sessions: &[TmuxSession],
+    items: &[TreeItem],
+) -> Option<usize> {
+    // Find the attached session's active window and active pane
+    for session in sessions {
+        if !session.session_attached {
+            continue;
+        }
+        for window in &session.windows {
+            if !window.window_active {
+                continue;
+            }
+            // Multi-pane: find the active pane
+            if window.panes.len() > 1 {
+                for pane in &window.panes {
+                    if pane.pane_active {
+                        return items.iter().position(|item| matches!(
+                            item,
+                            TreeItem::Pane { pane: p, .. } if p.pane_id == pane.pane_id
+                        ));
+                    }
+                }
+            }
+            // Single-pane: select the window itself
+            return items.iter().position(|item| matches!(
+                item,
+                TreeItem::Window { session_name, window_index, .. }
+                    if *session_name == session.session_name
+                    && *window_index == window.window_index
+            ));
+        }
+    }
+    None
+}
+
 /// Compute the visual row index for a given item index.
 /// Visual rows include session borders and sub-lines.
 pub fn item_to_visual_row(items: &[TreeItem], target: usize, width: u16) -> usize {

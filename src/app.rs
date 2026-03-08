@@ -230,6 +230,10 @@ impl App {
 
     fn rebuild_tree(&mut self) {
         self.tree_items = tree::flatten(&self.sessions, &self.collapsed);
+        // Follow the active (focused) pane/window
+        if let Some(active_idx) = tree::find_active_index(&self.sessions, &self.tree_items) {
+            self.selected = active_idx;
+        }
         // Clamp selected index
         if !self.tree_items.is_empty() && self.selected >= self.tree_items.len() {
             self.selected = self.tree_items.len() - 1;
