@@ -3,6 +3,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use unicode_width::UnicodeWidthStr;
 
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::git::GitInfo;
@@ -582,8 +583,8 @@ fn render_session_top_border(
         })
         .unwrap_or_default();
 
-    let left_width = left_text.chars().count();
-    let right_width = right_text.chars().count();
+    let left_width = left_text.width();
+    let right_width = right_text.width();
     let fill_count = (width as usize).saturating_sub(2 + left_width + right_width);
     let fill = "\u{2500}".repeat(fill_count);
 
@@ -635,7 +636,7 @@ fn render_bordered_item(
     truncate_spans(&mut content_spans, content_width);
 
     let content_display_width: usize =
-        content_spans.iter().map(|s| s.content.chars().count()).sum();
+        content_spans.iter().map(|s| s.content.width()).sum();
     let padding_len = content_width.saturating_sub(content_display_width);
 
     if selected {
@@ -707,7 +708,7 @@ fn render_bordered_agent_status_sub_line(
     ];
     truncate_spans(&mut inner_spans, content_width);
 
-    let inner_width: usize = inner_spans.iter().map(|s| s.content.chars().count()).sum();
+    let inner_width: usize = inner_spans.iter().map(|s| s.content.width()).sum();
     let padding_len = content_width.saturating_sub(inner_width);
 
     if selected {
@@ -765,7 +766,7 @@ fn render_bordered_git_sub_line(
     inner_spans.extend(git_spans);
     truncate_spans(&mut inner_spans, content_width);
 
-    let inner_width: usize = inner_spans.iter().map(|s| s.content.chars().count()).sum();
+    let inner_width: usize = inner_spans.iter().map(|s| s.content.width()).sum();
     let padding_len = content_width.saturating_sub(inner_width);
 
     if selected {
@@ -808,12 +809,12 @@ fn git_display_spans(gi: &GitInfo) -> Vec<Span<'static>> {
     }
 }
 
-/// Truncate spans to fit within max_width characters.
+/// Truncate spans to fit within max_width display columns.
 fn truncate_spans(spans: &mut Vec<Span<'static>>, max_width: usize) {
     let mut total = 0;
     let mut truncate_at = spans.len();
     for (i, span) in spans.iter().enumerate() {
-        let span_width = span.content.chars().count();
+        let span_width = span.content.width();
         if total + span_width > max_width {
             truncate_at = i;
             break;
@@ -823,7 +824,16 @@ fn truncate_spans(spans: &mut Vec<Span<'static>>, max_width: usize) {
     if truncate_at < spans.len() {
         let remaining = max_width.saturating_sub(total);
         if remaining > 0 {
-            let truncated: String = spans[truncate_at].content.chars().take(remaining).collect();
+            // Truncate by display width, not char count
+            let mut w = 0;
+            let truncated: String = spans[truncate_at]
+                .content
+                .chars()
+                .take_while(|c| {
+                    w += UnicodeWidthStr::width(c.to_string().as_str());
+                    w <= remaining
+                })
+                .collect();
             let style = spans[truncate_at].style;
             spans[truncate_at] = Span::styled(truncated, style);
             spans.truncate(truncate_at + 1);
