@@ -232,6 +232,7 @@ impl App {
         let target = item.tmux_target();
         if let Ok(Some(client)) = tmux_client::detect_client().await {
             let _ = tmux_client::switch_to(&client, &target).await;
+            self.refresh().await?;
         }
 
         Ok(())
