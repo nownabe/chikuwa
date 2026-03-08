@@ -65,7 +65,9 @@ jobs:
         run: |
           cd target/release
           tar czf chikuwa-x86_64-unknown-linux-gnu.tar.gz chikuwa
+      - name: Copy binary
+        run: cp target/release/chikuwa chikuwa-x86_64-unknown-linux-gnu
       - name: Upload to GitHub Release
-        run: gh release upload "${{ needs.release-plz-release.outputs.tag }}" target/release/chikuwa-x86_64-unknown-linux-gnu.tar.gz
+        run: gh release upload "${{ needs.release-plz-release.outputs.tag }}" chikuwa-x86_64-unknown-linux-gnu target/release/chikuwa-x86_64-unknown-linux-gnu.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
