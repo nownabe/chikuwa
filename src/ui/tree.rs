@@ -489,7 +489,11 @@ fn render_collapsed_session(
     )];
 
     if let Some(repo) = repo_name {
-        spans.push(Span::styled(format!(" \u{2500}\u{2500} {}", repo), name_style));
+        let repo_short = repo.rsplit('/').next().unwrap_or(repo);
+        spans.push(Span::styled(
+            format!(" \u{2500}\u{2500} {} {}", theme::ICON_GITHUB, repo_short),
+            name_style,
+        ));
     }
 
     let mut line = Line::from(spans);
@@ -510,7 +514,10 @@ fn render_session_top_border(
 ) -> Line<'static> {
     let left_text = format!(" {} {} ", theme::ICON_SESSION, name);
     let right_text = repo_name
-        .map(|r| format!(" {} ", r))
+        .map(|r| {
+            let repo_short = r.rsplit('/').next().unwrap_or(r);
+            format!(" {} {} ", theme::ICON_GITHUB, repo_short)
+        })
         .unwrap_or_default();
 
     let left_width = left_text.chars().count();
