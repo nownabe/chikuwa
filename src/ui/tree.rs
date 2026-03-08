@@ -858,13 +858,14 @@ fn truncate_spans(spans: &mut Vec<Span<'static>>, max_width: usize) {
 }
 
 /// Choose the icon for a Window or Pane item.
-/// Priority: agent > neovim > shell > multi-pane window. Fallback: terminal.
+/// Priority: claude > neovim > shell > multi-pane window. Fallback: terminal.
 fn item_icon(
     agent_state: Option<&AgentState>,
+    pane_title: &str,
     command: Option<&str>,
     has_multiple_panes: bool,
 ) -> &'static str {
-    if agent_state.is_some() {
+    if agent_state.is_some() || is_claude_code_title(pane_title) {
         return theme::ICON_CLAUDE;
     }
     if let Some(cmd) = command {
@@ -899,6 +900,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: us
 
             let icon = item_icon(
                 agent_state.as_ref(),
+                pane_title.as_deref().unwrap_or(""),
                 pane_current_command.as_deref(),
                 *has_multiple_panes,
             );
@@ -941,6 +943,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: us
         TreeItem::Pane { pane, session_toplevel, .. } => {
             let icon = item_icon(
                 pane.agent_state.as_ref(),
+                &pane.pane_title,
                 Some(&pane.pane_current_command),
                 false,
             );
