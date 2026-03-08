@@ -386,6 +386,7 @@ pub async fn run(store_events: bool) -> Result<()> {
     let result = run_app(&mut terminal, store_events).await;
 
     // Cleanup
+    tmux_client::unregister_hooks().await;
     ipc::cleanup_socket();
     disable_raw_mode()?;
     execute!(
@@ -423,6 +424,11 @@ async fn run_app(
 
     // Initial data fetch
     app.refresh().await?;
+
+    // Register tmux hooks for instant change notifications (non-fatal on error)
+    if let Err(e) = tmux_client::register_hooks().await {
+        eprintln!("Warning: failed to register tmux hooks: {}", e);
+    }
 
     // Event channel
     let (tx, mut rx) = mpsc::channel(32);
@@ -600,6 +606,10 @@ async fn run_app(
                     }
                 }
                 AppEvent::Tick => {
+                    app.refresh().await?;
+                }
+                AppEvent::TmuxChanged => {
+                    app.user_navigated = false;
                     app.refresh().await?;
                 }
                 AppEvent::AnimationTick => {

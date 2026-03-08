@@ -67,12 +67,33 @@ pub async fn start_listener(tx: mpsc::Sender<AppEvent>) -> Result<()> {
                     continue;
                 }
 
-                if let Ok(state) = serde_json::from_str::<AgentState>(&line) {
+                if line == "notify" {
+                    let _ = tx.send(AppEvent::TmuxChanged).await;
+                } else if let Ok(state) = serde_json::from_str::<AgentState>(&line) {
                     let _ = tx.send(AppEvent::AgentStateUpdate(state)).await;
                 }
             }
         });
     }
+}
+
+/// Client side: connect to the socket, send a "notify" line, and disconnect.
+/// Fails silently if the TUI is not running.
+pub async fn send_notify() -> Result<()> {
+    let path = socket_path();
+
+    let mut stream = match UnixStream::connect(&path).await {
+        Ok(s) => s,
+        Err(_) => return Ok(()), // TUI not running, fail silently
+    };
+
+    stream
+        .write_all(b"notify\n")
+        .await
+        .context("Failed to write to socket")?;
+    stream.shutdown().await.ok();
+
+    Ok(())
 }
 
 /// Remove the socket file on shutdown.

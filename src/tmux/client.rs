@@ -139,6 +139,57 @@ pub async fn switch_to(client_tty: &str, target: &str) -> Result<()> {
     Ok(())
 }
 
+/// Hook names to register for instant tmux change notifications.
+const HOOK_NAMES: &[&str] = &[
+    "after-select-pane",
+    "after-select-window",
+    "client-session-changed",
+    "session-created",
+    "session-closed",
+    "session-renamed",
+    "window-linked",
+    "window-unlinked",
+    "window-renamed",
+    "pane-exited",
+];
+
+/// Hook array index used to avoid conflicts with user hooks.
+const HOOK_INDEX: u32 = 42;
+
+/// Register tmux hooks that notify the TUI on structural changes.
+pub async fn register_hooks() -> Result<()> {
+    let exe = std::env::current_exe()
+        .context("Failed to get current executable path")?
+        .to_string_lossy()
+        .to_string();
+
+    for hook_name in HOOK_NAMES {
+        let hook_arg = format!("{}[{}]", hook_name, HOOK_INDEX);
+        let cmd = format!("run-shell -b '{} notify'", exe);
+        let output = Command::new("tmux")
+            .args(["set-hook", "-g", &hook_arg, &cmd])
+            .output()
+            .await;
+
+        if let Err(e) = output {
+            anyhow::bail!("Failed to register tmux hook {}: {}", hook_name, e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Unregister tmux hooks. Ignores errors (hooks may not exist).
+pub async fn unregister_hooks() {
+    for hook_name in HOOK_NAMES {
+        let hook_arg = format!("{}[{}]", hook_name, HOOK_INDEX);
+        let _ = Command::new("tmux")
+            .args(["set-hook", "-gu", &hook_arg])
+            .output()
+            .await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

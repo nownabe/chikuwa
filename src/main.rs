@@ -24,6 +24,8 @@ struct Cli {
 enum Commands {
     /// Hook mode: update agent state from Claude Code hooks (reads event from stdin JSON)
     Hook,
+    /// Notify the TUI of a tmux change (used by tmux hooks)
+    Notify,
 }
 
 #[tokio::main]
@@ -33,6 +35,9 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Commands::Hook) => {
             hook::run().await?;
+        }
+        Some(Commands::Notify) => {
+            ipc::send_notify().await?;
         }
         None => {
             app::run(cli.store_events).await?;
