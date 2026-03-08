@@ -632,10 +632,9 @@ async fn run_app(
                                 "PostToolUse" | "PostToolUseFailure" => {
                                     let mut tools = existing.tools.clone();
                                     if let Some(removing) = state.tools.first() {
-                                        if let Some(pos) = tools
-                                            .iter()
-                                            .position(|t| t.name == removing.name && t.detail == removing.detail)
-                                        {
+                                        if let Some(pos) = tools.iter().position(|t| {
+                                            t.name == removing.name && t.detail == removing.detail
+                                        }) {
                                             tools.remove(pos);
                                         }
                                     }

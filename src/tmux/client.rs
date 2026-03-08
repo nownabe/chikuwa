@@ -219,7 +219,10 @@ mod tests {
         let tree = build_tree(raw, &agents);
         let pane = &tree[0].windows[0].panes[0];
         assert!(pane.agent_state.is_some());
-        assert_eq!(pane.agent_state.as_ref().unwrap().state, AgentStatus::Running);
+        assert_eq!(
+            pane.agent_state.as_ref().unwrap().state,
+            AgentStatus::Running
+        );
         assert_eq!(pane.pane_current_path, "/project");
     }
 

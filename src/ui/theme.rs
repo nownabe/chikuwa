@@ -55,4 +55,3 @@ pub fn status_style(status: &AgentStatus, session_attached: bool) -> Style {
 pub fn branch_style() -> Style {
     Style::default().fg(COLOR_LIGHT_PURPLE)
 }
-
