@@ -18,11 +18,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Hook mode: update agent state from Claude Code hooks
-    Hook {
-        /// Event type: started, running, waiting, permission, notification, ended, statusline
-        event: String,
-    },
+    /// Hook mode: update agent state from Claude Code hooks (reads event from stdin JSON)
+    Hook,
 }
 
 #[tokio::main]
@@ -30,8 +27,8 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Hook { event }) => {
-            hook::run(&event).await?;
+        Some(Commands::Hook) => {
+            hook::run().await?;
         }
         None => {
             app::run().await?;

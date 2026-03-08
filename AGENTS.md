@@ -6,7 +6,7 @@
 cargo build     # Build
 cargo test      # Run all tests
 cargo run       # Run TUI (requires tmux)
-cargo run -- hook <event>  # Run hook mode (requires TMUX_PANE)
+cargo run -- hook          # Run hook mode (reads event from stdin JSON, requires TMUX_PANE)
 ```
 
 The `RUSTUP_TOOLCHAIN` env var may override `rust-toolchain.toml`. If you hit version errors, prefix commands with `unset RUSTUP_TOOLCHAIN &&`.
@@ -18,7 +18,7 @@ src/
   main.rs              # CLI entry point (clap subcommands)
   app.rs               # TUI app state and main event loop
   event.rs             # Keyboard/timer event handling
-  hook.rs              # `chikuwa hook <event>` subcommand (stdin → state file)
+  hook.rs              # `chikuwa hook` subcommand (stdin JSON → IPC state)
   agent/
     state.rs           # AgentState struct, state file read/write
   tmux/
@@ -35,7 +35,7 @@ src/
 Two modes in a single binary:
 
 - **TUI mode** (`chikuwa`): Polls `tmux list-panes -a` every 2 seconds, reads state files from `$XDG_RUNTIME_DIR/chikuwa/`, and renders a tree view with ratatui.
-- **Hook mode** (`chikuwa hook <event>`): Reads JSON from stdin, writes/updates state files. Called by Claude Code hooks.
+- **Hook mode** (`chikuwa hook`): Reads JSON from stdin, determines event type via `hook_event_name` field, and sends state via IPC. Called by Claude Code hooks.
 
 State files are JSON at `$XDG_RUNTIME_DIR/chikuwa/<TMUX_PANE>.json` (fallback: `/tmp/chikuwa/`).
 

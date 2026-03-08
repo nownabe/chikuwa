@@ -22,12 +22,12 @@ A sidebar TUI for monitoring multiple AI agents (Claude Code, etc.) running in t
 A single binary that operates in two modes:
 
 - **`chikuwa`** — TUI mode. Displays tmux sessions/windows/panes as a tree with real-time agent status.
-- **`chikuwa hook <event>`** — Hook mode. Called from Claude Code hooks to update state files.
+- **`chikuwa hook`** — Hook mode. Called from Claude Code hooks; reads `hook_event_name` from stdin JSON to determine agent status.
 
 ```
-Claude Code ──(hooks)──→ chikuwa hook <event> ──→ state files ←── chikuwa (TUI)
-                                                  $XDG_RUNTIME_DIR/chikuwa/
-tmux ──(list-panes -a)──────────────────────────────────────←── chikuwa (TUI)
+Claude Code ──(hooks)──→ chikuwa hook ──→ state files ←── chikuwa (TUI)
+                                          $XDG_RUNTIME_DIR/chikuwa/
+tmux ──(list-panes -a)──────────────────────────────←── chikuwa (TUI)
 ```
 
 ## Installation
@@ -74,11 +74,13 @@ Add the following to `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "chikuwa hook running"}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "chikuwa hook waiting"}]}],
-    "Notification": [{"matcher": "*", "hooks": [{"type": "command", "command": "chikuwa hook notification"}]}],
-    "SessionStart": [{"hooks": [{"type": "command", "command": "chikuwa hook started"}]}],
-    "SessionEnd": [{"hooks": [{"type": "command", "command": "chikuwa hook ended"}]}]
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}]
   }
 }
 ```
