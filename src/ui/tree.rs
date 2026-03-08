@@ -191,15 +191,23 @@ fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&
 }
 
 /// Whether this item has displayable git info (branch or PR).
+/// Only shown for Claude Code panes (detected by pane title icon prefix).
 fn item_has_git_info(item: &TreeItem) -> bool {
     match item {
         TreeItem::Window {
-            git_info: Some(gi), ..
-        } => gi.branch.is_some() || gi.pr.is_some(),
-        TreeItem::Pane { pane, .. } => pane
-            .git_info
-            .as_ref()
-            .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()),
+            git_info: Some(gi),
+            pane_title,
+            ..
+        } if is_claude_code_title(pane_title.as_deref().unwrap_or("")) => {
+            gi.branch.is_some() || gi.pr.is_some()
+        }
+        TreeItem::Pane { pane, .. }
+            if is_claude_code_title(&pane.pane_title) =>
+        {
+            pane.git_info
+                .as_ref()
+                .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some())
+        }
         _ => false,
     }
 }
@@ -743,13 +751,19 @@ fn render_bordered_git_sub_line(
     let (gi, prefix) = match item {
         TreeItem::Window {
             git_info: Some(gi),
+            pane_title,
             ..
-        } if gi.branch.is_some() || gi.pr.is_some() => (gi, "  "),
+        } if is_claude_code_title(pane_title.as_deref().unwrap_or(""))
+            && (gi.branch.is_some() || gi.pr.is_some()) =>
+        {
+            (gi, "  ")
+        }
         TreeItem::Pane { pane, .. }
-            if pane
-                .git_info
-                .as_ref()
-                .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()) =>
+            if is_claude_code_title(&pane.pane_title)
+                && pane
+                    .git_info
+                    .as_ref()
+                    .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()) =>
         {
             (pane.git_info.as_ref().unwrap(), "    ")
         }
@@ -1359,17 +1373,21 @@ mod tests {
                     window_index: 0,
                     window_name: "claude".to_string(),
                     window_active: true,
-                    panes: vec![make_pane_with_git(
-                        "%0",
-                        "node",
-                        GitInfo {
-                            branch: Some("main".to_string()),
-                            pr: None,
-                            repo_name: None,
-                            toplevel: None,
-                            worktree_name: None,
-                        },
-                    )],
+                    panes: vec![{
+                        let mut p = make_pane_with_git(
+                            "%0",
+                            "node",
+                            GitInfo {
+                                branch: Some("main".to_string()),
+                                pr: None,
+                                repo_name: None,
+                                toplevel: None,
+                                worktree_name: None,
+                            },
+                        );
+                        p.pane_title = "✳ Claude Code".to_string();
+                        p
+                    }],
                 },
                 TmuxWindow {
                     window_index: 1,
@@ -1472,7 +1490,29 @@ mod tests {
 
     #[test]
     fn test_item_has_git_info() {
-        let with_branch = TreeItem::Window {
+        // Claude Code pane with git info → true
+        let claude_with_branch = TreeItem::Window {
+            session_name: "s".to_string(),
+            window_index: 0,
+            window_name: "w".to_string(),
+            agent_state: None,
+            git_info: Some(GitInfo {
+                branch: Some("main".to_string()),
+                pr: None,
+                repo_name: None,
+                toplevel: None,
+                worktree_name: None,
+            }),
+            pane_current_path: None,
+            pane_current_command: None,
+            pane_title: Some("✳ Claude Code".to_string()),
+            has_multiple_panes: false,
+            session_toplevel: None,
+        };
+        assert!(item_has_git_info(&claude_with_branch));
+
+        // Non-Claude pane with git info → false
+        let non_claude_with_branch = TreeItem::Window {
             session_name: "s".to_string(),
             window_index: 0,
             window_name: "w".to_string(),
@@ -1490,21 +1530,7 @@ mod tests {
             has_multiple_panes: false,
             session_toplevel: None,
         };
-        assert!(item_has_git_info(&with_branch));
-
-        let without = TreeItem::Window {
-            session_name: "s".to_string(),
-            window_index: 0,
-            window_name: "w".to_string(),
-            agent_state: None,
-            git_info: None,
-            pane_current_path: None,
-            pane_current_command: None,
-            pane_title: None,
-            has_multiple_panes: false,
-            session_toplevel: None,
-        };
-        assert!(!item_has_git_info(&without));
+        assert!(!item_has_git_info(&non_claude_with_branch));
 
         let session = TreeItem::Session {
             name: "s".to_string(),
