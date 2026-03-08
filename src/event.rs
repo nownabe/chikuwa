@@ -13,6 +13,7 @@ pub enum AppEvent {
     Tick,
     AnimationTick,
     AgentStateUpdate(AgentState),
+    TmuxChanged,
 }
 
 /// Spawn an event loop that sends key events and periodic ticks.
