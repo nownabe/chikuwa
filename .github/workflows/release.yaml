@@ -27,7 +27,7 @@ jobs:
         with:
           app-id: ${{ vars.GH_APP_RELEASER_ID }}
           private-key: ${{ secrets.GH_APP_RELEASER_PKEY }}
-          permissions: contents=write
+          permission-contents: write
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master
         with:
           toolchain: stable
@@ -56,7 +56,8 @@ jobs:
         with:
           app-id: ${{ vars.GH_APP_RELEASER_ID }}
           private-key: ${{ secrets.GH_APP_RELEASER_PKEY }}
-          permissions: contents=write,pull-requests=write
+          permission-contents: write
+          permission-pull-requests: write
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master
         with:
           toolchain: stable
