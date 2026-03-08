@@ -46,6 +46,7 @@ pub async fn run() -> Result<()> {
 
     let mut state = AgentState::new(pane_id, status);
     state.session_id = input.session_id;
+    state.hook_event_name = Some(input.hook_event_name);
     ipc::send_state(&state).await?;
 
     Ok(())

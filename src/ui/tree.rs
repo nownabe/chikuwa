@@ -1136,6 +1136,7 @@ mod tests {
                                 session_id: None,
                                 state: AgentStatus::Running,
                                 updated_at: 100,
+                                hook_event_name: None,
                             }),
                         )],
                     },

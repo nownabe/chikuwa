@@ -29,6 +29,8 @@ pub struct AgentState {
     pub session_id: Option<String>,
     pub state: AgentStatus,
     pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_event_name: Option<String>,
 }
 
 impl AgentState {
@@ -38,6 +40,7 @@ impl AgentState {
             session_id: None,
             state,
             updated_at: now(),
+            hook_event_name: None,
         }
     }
 }
@@ -106,6 +109,7 @@ mod tests {
             session_id: Some("abc123".to_string()),
             state: AgentStatus::Running,
             updated_at: 1234567890,
+            hook_event_name: None,
         };
 
         let json = serde_json::to_string(&state).unwrap();

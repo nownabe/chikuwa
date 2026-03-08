@@ -14,6 +14,10 @@ use clap::{Parser, Subcommand};
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+
+    /// Store all received hook events to a JSONL file for debugging
+    #[arg(long)]
+    store_events: bool,
 }
 
 #[derive(Subcommand)]
@@ -31,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
             hook::run().await?;
         }
         None => {
-            app::run().await?;
+            app::run(cli.store_events).await?;
         }
     }
 

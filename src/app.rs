@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
-use std::io;
+use std::io::{self, Write as _};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -358,8 +358,19 @@ impl App {
     }
 }
 
+/// Returns the event log file path.
+fn event_log_path() -> std::path::PathBuf {
+    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+        std::path::PathBuf::from(runtime_dir)
+            .join("chikuwa")
+            .join("events.jsonl")
+    } else {
+        std::path::PathBuf::from("/tmp/chikuwa/events.jsonl")
+    }
+}
+
 /// Run the TUI application.
-pub async fn run() -> Result<()> {
+pub async fn run(store_events: bool) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -372,7 +383,7 @@ pub async fn run() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal).await;
+    let result = run_app(&mut terminal, store_events).await;
 
     // Cleanup
     ipc::cleanup_socket();
@@ -387,8 +398,28 @@ pub async fn run() -> Result<()> {
     result
 }
 
-async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+async fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    store_events: bool,
+) -> Result<()> {
     let mut app = App::new();
+
+    // Open event log file if --store-events is enabled
+    let mut event_log: Option<std::fs::File> = if store_events {
+        let path = event_log_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        Some(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .context(format!("Failed to open event log: {}", path.display()))?,
+        )
+    } else {
+        None
+    };
 
     // Initial data fetch
     app.refresh().await?;
@@ -575,6 +606,11 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
                     app.anim_frame = app.anim_frame.wrapping_add(1);
                 }
                 AppEvent::AgentStateUpdate(state) => {
+                    if let Some(ref mut log) = event_log {
+                        if let Ok(json) = serde_json::to_string(&state) {
+                            let _ = writeln!(log, "{}", json);
+                        }
+                    }
                     use crate::agent::state::AgentStatus;
                     if state.state == AgentStatus::Ended {
                         app.agent_states.remove(&state.tmux_pane);

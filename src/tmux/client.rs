@@ -209,6 +209,7 @@ mod tests {
                 session_id: Some("sess1".to_string()),
                 state: AgentStatus::Running,
                 updated_at: 100,
+                hook_event_name: None,
             },
         );
 
