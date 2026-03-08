@@ -24,6 +24,7 @@ A sidebar TUI for monitoring multiple AI agents (Claude Code, etc.) running in t
 
 - **Real-time agent monitoring** — See all running Claude Code agents across tmux sessions with animated status spinners
 - **Active tool display** — Shows what each agent is currently doing (e.g., `Bash: cargo test`, `Read: src/main.rs`), including multiple concurrent tools
+- **Instant tmux updates** — Registers tmux hooks for immediate response to pane/window/session changes, with periodic polling as a fallback
 - **Git integration** — Displays current branch, repo name, and open PR info per session
 - **Nvim integration** — Shows the file being edited in nvim panes with relative paths
 - **Keyboard navigation** — Navigate and switch between tmux windows/panes
@@ -38,9 +39,12 @@ A single binary that operates in two modes:
 
 ```
 Claude Code ──(hooks)──→ chikuwa hook ──(IPC)──→ chikuwa (TUI)
-tmux ──(list-panes -a)──────────────────────←── chikuwa (TUI)
-git ──(branch, gh pr)───────────────────────←── chikuwa (TUI)
+tmux ──(hooks)──→ chikuwa notify ──(IPC)──→ chikuwa (TUI)
+tmux ──(list-panes -a, polling)────────────←── chikuwa (TUI)
+git ──(branch, gh pr)──────────────────────←── chikuwa (TUI)
 ```
+
+The TUI registers tmux hooks (e.g., `after-select-pane`, `session-created`) on startup. When tmux fires a hook, it runs `chikuwa notify` which signals the TUI to refresh immediately. Periodic polling still runs as a fallback for changes that hooks don't cover (e.g., `pane_current_command`, `pane_current_path`). Hooks are automatically cleaned up on exit.
 
 ## Installation
 
@@ -100,6 +104,19 @@ Add the following to `~/.claude/settings.json`:
 ```
 
 The hook reads `hook_event_name`, `tool_name`, and `tool_input` from stdin JSON to determine agent status and active tools.
+
+### tmux Hooks Setup
+
+tmux hooks are automatically managed by the TUI — no manual configuration is needed.
+
+On startup, the TUI registers global tmux hooks (at array index `[42]`) for events like `after-select-pane`, `client-session-changed`, `window-linked`, etc. When tmux fires one of these hooks, it runs `chikuwa notify` in the background to signal an immediate refresh. On exit, the hooks are automatically unregistered.
+
+If you need to manually clean up stale hooks (e.g., after a crash), run:
+
+```sh
+tmux show-hooks -g | grep chikuwa   # check for leftover hooks
+chikuwa notify                       # or just start and quit the TUI to clean up
+```
 
 ## Development
 
