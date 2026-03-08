@@ -414,10 +414,10 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
         }
     });
 
-    // Animation tick (80ms for smooth spinner)
+    // Animation tick (100ms for smooth spinner)
     let anim_tx = tx.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(130));
+        let mut interval = tokio::time::interval(Duration::from_millis(150));
         loop {
             interval.tick().await;
             if anim_tx.send(AppEvent::AnimationTick).await.is_err() {
