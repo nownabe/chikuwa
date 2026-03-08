@@ -111,4 +111,4 @@ cargo run     # Run TUI (requires tmux)
 
 ## License
 
-MIT
+Apache-2.0
