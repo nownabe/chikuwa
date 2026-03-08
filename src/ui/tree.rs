@@ -190,7 +190,11 @@ fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&
     }
     if is_shell(command) {
         let p = relative_path(path, toplevel);
-        if p.ends_with('/') { p } else { format!("{}/", p) }
+        if p.ends_with('/') {
+            p
+        } else {
+            format!("{}/", p)
+        }
     } else if command == "nvim" && !pane_title.is_empty() {
         pane_title.to_string()
     } else {
@@ -199,7 +203,7 @@ fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&
 }
 
 /// Return the git info and prefix for an item, if it's a Claude Code pane with git info.
-fn item_git_info<'a>(item: &'a TreeItem) -> Option<(&'a GitInfo, &'static str)> {
+fn item_git_info(item: &TreeItem) -> Option<(&GitInfo, &'static str)> {
     match item {
         TreeItem::Window {
             git_info: Some(gi),
@@ -215,7 +219,7 @@ fn item_git_info<'a>(item: &'a TreeItem) -> Option<(&'a GitInfo, &'static str)> 
                 && pane
                     .git_info
                     .as_ref()
-                    .map_or(false, |gi| gi.branch.is_some() || gi.pr.is_some()) =>
+                    .is_some_and(|gi| gi.branch.is_some() || gi.pr.is_some()) =>
         {
             Some((pane.git_info.as_ref().unwrap(), "    "))
         }
@@ -245,7 +249,7 @@ fn git_info_visual_rows(item: &TreeItem, width: u16) -> usize {
             }
             // First line fits header + part of title
             let remaining = title_width.saturating_sub(first_line_avail);
-            1 + (remaining + wrap_avail - 1) / wrap_avail
+            1 + remaining.div_ceil(wrap_avail)
         }
     } else {
         1 // branch line is always 1 row
@@ -258,7 +262,7 @@ fn is_claude_code_title(pane_title: &str) -> bool {
     pane_title
         .chars()
         .next()
-        .map_or(false, |c| !c.is_alphanumeric() && !c.is_ascii())
+        .is_some_and(|c| !c.is_alphanumeric() && !c.is_ascii())
 }
 
 /// Extract Claude activity text from a pane title, stripping leading icon characters.
@@ -301,7 +305,6 @@ pub fn flatten(
         }
 
         for window in session.windows.iter() {
-
             // For single-pane windows, embed pane details in the Window item
             let (agent_state, git_info, pane_current_path, pane_current_command, pane_title) =
                 if window.panes.len() == 1 {
@@ -349,10 +352,7 @@ pub fn flatten(
 
 /// Find the index of the active (focused) item in the flattened tree.
 /// Looks for the attached session's active window's active pane.
-pub fn find_active_index(
-    sessions: &[TmuxSession],
-    items: &[TreeItem],
-) -> Option<usize> {
+pub fn find_active_index(sessions: &[TmuxSession], items: &[TreeItem]) -> Option<usize> {
     // Find the attached session's active window and active pane
     for session in sessions {
         if !session.session_attached {
@@ -366,20 +366,24 @@ pub fn find_active_index(
             if window.panes.len() > 1 {
                 for pane in &window.panes {
                     if pane.pane_active {
-                        return items.iter().position(|item| matches!(
-                            item,
-                            TreeItem::Pane { pane: p, .. } if p.pane_id == pane.pane_id
-                        ));
+                        return items.iter().position(|item| {
+                            matches!(
+                                item,
+                                TreeItem::Pane { pane: p, .. } if p.pane_id == pane.pane_id
+                            )
+                        });
                     }
                 }
             }
             // Single-pane: select the window itself
-            return items.iter().position(|item| matches!(
-                item,
-                TreeItem::Window { session_name, window_index, .. }
-                    if *session_name == session.session_name
-                    && *window_index == window.window_index
-            ));
+            return items.iter().position(|item| {
+                matches!(
+                    item,
+                    TreeItem::Window { session_name, window_index, .. }
+                        if *session_name == session.session_name
+                        && *window_index == window.window_index
+                )
+            });
         }
     }
     None
@@ -493,7 +497,12 @@ pub fn render(
     f.render_widget(paragraph, area);
 }
 
-fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_frame: usize) -> Vec<Line<'static>> {
+fn build_visual_lines(
+    items: &[TreeItem],
+    width: u16,
+    selected: usize,
+    anim_frame: usize,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut i = 0;
 
@@ -547,11 +556,20 @@ fn build_visual_lines(items: &[TreeItem], width: u16, selected: usize, anim_fram
                 ));
 
                 // Content items with agent status and git sub-lines
-                for j in content_start..content_end {
+                for (j, item) in items
+                    .iter()
+                    .enumerate()
+                    .take(content_end)
+                    .skip(content_start)
+                {
                     let is_sel = j == selected;
-                    lines.push(render_bordered_item(&items[j], width, is_sel, attached, anim_frame));
-                    lines.extend(render_bordered_agent_status_sub_lines(&items[j], width, is_sel, attached, anim_frame));
-                    lines.extend(render_bordered_git_sub_lines(&items[j], width, is_sel, attached));
+                    lines.push(render_bordered_item(
+                        item, width, is_sel, attached, anim_frame,
+                    ));
+                    lines.extend(render_bordered_agent_status_sub_lines(
+                        item, width, is_sel, attached, anim_frame,
+                    ));
+                    lines.extend(render_bordered_git_sub_lines(item, width, is_sel, attached));
                 }
 
                 // Bottom border
@@ -612,7 +630,12 @@ fn render_collapsed_session(
             .map(|w| format!(" ({})", w))
             .unwrap_or_default();
         spans.push(Span::styled(
-            format!(" \u{2500}\u{2500} {} {}{}", theme::ICON_GITHUB, repo_short, wt),
+            format!(
+                " \u{2500}\u{2500} {} {}{}",
+                theme::ICON_GITHUB,
+                repo_short,
+                wt
+            ),
             name_style,
         ));
     }
@@ -697,8 +720,7 @@ fn render_bordered_item(
     let mut content_spans = render_content_spans(item, session_attached, anim_frame);
     truncate_spans(&mut content_spans, content_width);
 
-    let content_display_width: usize =
-        content_spans.iter().map(|s| s.content.width()).sum();
+    let content_display_width: usize = content_spans.iter().map(|s| s.content.width()).sum();
     let padding_len = content_width.saturating_sub(content_display_width);
 
     if selected {
@@ -726,7 +748,10 @@ fn render_bordered_item(
 /// Count how many visual sub-lines the agent status occupies (status + optional tool).
 fn agent_status_visual_rows(item: &TreeItem) -> usize {
     let agent = match item {
-        TreeItem::Window { agent_state: Some(a), .. } => a,
+        TreeItem::Window {
+            agent_state: Some(a),
+            ..
+        } => a,
         TreeItem::Pane { pane, .. } => match pane.agent_state.as_ref() {
             Some(a) => a,
             None => return 0,
@@ -745,7 +770,10 @@ fn render_bordered_agent_status_sub_lines(
     anim_frame: usize,
 ) -> Vec<Line<'static>> {
     let (agent, prefix) = match item {
-        TreeItem::Window { agent_state: Some(agent), .. } => (agent, "  "),
+        TreeItem::Window {
+            agent_state: Some(agent),
+            ..
+        } => (agent, "  "),
         TreeItem::Pane { pane, .. } => match pane.agent_state.as_ref() {
             Some(agent) => (agent, "    "),
             None => return vec![],
@@ -767,10 +795,7 @@ fn render_bordered_agent_status_sub_lines(
 
     // Status line
     let mut status_spans = vec![
-        Span::styled(
-            prefix.to_string(),
-            Style::default().fg(theme::COLOR_PURPLE),
-        ),
+        Span::styled(prefix.to_string(), Style::default().fg(theme::COLOR_PURPLE)),
         Span::styled(
             theme::status_icon(&agent.state, anim_frame).to_string(),
             theme::status_style(&agent.state, session_attached),
@@ -778,7 +803,12 @@ fn render_bordered_agent_status_sub_lines(
         Span::styled(format!(" {}", status_label), dim_style),
     ];
     truncate_spans(&mut status_spans, content_width);
-    let mut result = vec![wrap_bordered_line(status_spans, content_width, selected, border_style)];
+    let mut result = vec![wrap_bordered_line(
+        status_spans,
+        content_width,
+        selected,
+        border_style,
+    )];
 
     // Tool lines (one row per active tool)
     for tool in &agent.tools {
@@ -787,11 +817,19 @@ fn render_bordered_agent_status_sub_lines(
             None => format!("{} {}", theme::ICON_TOOL, tool.name),
         };
         let mut tool_spans = vec![
-            Span::styled(format!("{}  ", prefix), Style::default().fg(theme::COLOR_PURPLE)),
+            Span::styled(
+                format!("{}  ", prefix),
+                Style::default().fg(theme::COLOR_PURPLE),
+            ),
             Span::styled(tool_text, dim_style),
         ];
         truncate_spans(&mut tool_spans, content_width);
-        result.push(wrap_bordered_line(tool_spans, content_width, selected, border_style));
+        result.push(wrap_bordered_line(
+            tool_spans,
+            content_width,
+            selected,
+            border_style,
+        ));
     }
 
     result
@@ -823,7 +861,12 @@ fn render_bordered_git_sub_lines(
                 Span::styled(text, git_style),
             ];
             truncate_spans(&mut inner_spans, content_width);
-            return vec![wrap_bordered_line(inner_spans, content_width, selected, border_style)];
+            return vec![wrap_bordered_line(
+                inner_spans,
+                content_width,
+                selected,
+                border_style,
+            )];
         }
         return vec![];
     }
@@ -836,7 +879,11 @@ fn render_bordered_git_sub_lines(
     let first_line_avail = content_width.saturating_sub(prefix_width + header_width);
 
     // Split title into lines by display width
-    let title_lines = wrap_text(&pr.title, first_line_avail, content_width.saturating_sub(prefix_width));
+    let title_lines = wrap_text(
+        &pr.title,
+        first_line_avail,
+        content_width.saturating_sub(prefix_width),
+    );
 
     let mut lines = Vec::new();
     for (i, title_chunk) in title_lines.iter().enumerate() {
@@ -852,7 +899,12 @@ fn render_bordered_git_sub_lines(
                 Span::styled(title_chunk.clone(), git_style),
             ]
         };
-        lines.push(wrap_bordered_line(inner_spans, content_width, selected, border_style));
+        lines.push(wrap_bordered_line(
+            inner_spans,
+            content_width,
+            selected,
+            border_style,
+        ));
     }
 
     lines
@@ -978,7 +1030,11 @@ fn item_icon(
     theme::ICON_TERMINAL
 }
 
-fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: usize) -> Vec<Span<'static>> {
+fn render_content_spans(
+    item: &TreeItem,
+    session_attached: bool,
+    _anim_frame: usize,
+) -> Vec<Span<'static>> {
     let icon_style = session_border_style(session_attached);
     match item {
         TreeItem::Window {
@@ -1003,9 +1059,7 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: us
             spans.push(Span::styled(format!("{} ", icon), icon_style));
 
             if !*has_multiple_panes {
-                let pane_toplevel = git_info
-                    .as_ref()
-                    .and_then(|gi| gi.toplevel.as_deref());
+                let pane_toplevel = git_info.as_ref().and_then(|gi| gi.toplevel.as_deref());
                 // Only use relative path when pane's repo matches session's repo
                 let toplevel = if pane_toplevel == session_toplevel.as_deref() {
                     pane_toplevel
@@ -1036,7 +1090,11 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: us
 
             spans
         }
-        TreeItem::Pane { pane, session_toplevel, .. } => {
+        TreeItem::Pane {
+            pane,
+            session_toplevel,
+            ..
+        } => {
             let icon = item_icon(
                 pane.agent_state.as_ref(),
                 &pane.pane_title,
@@ -1048,17 +1106,19 @@ fn render_content_spans(item: &TreeItem, session_attached: bool, _anim_frame: us
                 Span::styled(format!("{} ", icon), icon_style),
             ];
 
-            let pane_toplevel = pane
-                .git_info
-                .as_ref()
-                .and_then(|gi| gi.toplevel.as_deref());
+            let pane_toplevel = pane.git_info.as_ref().and_then(|gi| gi.toplevel.as_deref());
             // Only use relative path when pane's repo matches session's repo
             let toplevel = if pane_toplevel == session_toplevel.as_deref() {
                 pane_toplevel
             } else {
                 None
             };
-            let label = display_label(&pane.pane_current_command, &pane.pane_current_path, &pane.pane_title, toplevel);
+            let label = display_label(
+                &pane.pane_current_command,
+                &pane.pane_current_path,
+                &pane.pane_title,
+                toplevel,
+            );
             let needs_attention = matches!(
                 pane.agent_state.as_ref().map(|a| &a.state),
                 Some(AgentStatus::Permission | AgentStatus::Waiting)
@@ -1159,10 +1219,7 @@ mod tests {
                     window_index: 0,
                     window_name: "work".to_string(),
                     window_active: true,
-                    panes: vec![
-                        make_pane("%2", "zsh", None),
-                        make_pane("%3", "vim", None),
-                    ],
+                    panes: vec![make_pane("%2", "zsh", None), make_pane("%3", "vim", None)],
                 }],
             },
         ]
@@ -1181,15 +1238,11 @@ mod tests {
         assert!(
             matches!(&items[1], TreeItem::Window { window_name, .. } if window_name == "claude")
         );
-        assert!(
-            matches!(&items[2], TreeItem::Window { window_name, .. } if window_name == "zsh")
-        );
+        assert!(matches!(&items[2], TreeItem::Window { window_name, .. } if window_name == "zsh"));
         assert!(
             matches!(&items[3], TreeItem::Session { name, attached: false, .. } if name == "dev")
         );
-        assert!(
-            matches!(&items[4], TreeItem::Window { window_name, .. } if window_name == "work")
-        );
+        assert!(matches!(&items[4], TreeItem::Window { window_name, .. } if window_name == "work"));
         assert!(matches!(&items[5], TreeItem::Pane { .. }));
         assert!(matches!(&items[6], TreeItem::Pane { .. }));
     }
@@ -1297,7 +1350,10 @@ mod tests {
 
     #[test]
     fn test_shorten_relative_path() {
-        assert_eq!(shorten_relative_path("repo/ui/theme.rs", 30), "repo/ui/theme.rs");
+        assert_eq!(
+            shorten_relative_path("repo/ui/theme.rs", 30),
+            "repo/ui/theme.rs"
+        );
         // First component (repo dir) is never abbreviated
         assert_eq!(
             shorten_relative_path("repo/deeply/nested/dir/file.rs", 20),
@@ -1315,7 +1371,10 @@ mod tests {
     #[test]
     fn test_shorten_path() {
         std::env::set_var("HOME", "/home/user");
-        assert_eq!(shorten_path("/home/user/src/github.com/nownabe/chikuwa"), "~/s/g/n/chikuwa");
+        assert_eq!(
+            shorten_path("/home/user/src/github.com/nownabe/chikuwa"),
+            "~/s/g/n/chikuwa"
+        );
         assert_eq!(shorten_path("/home/user/projects"), "~/projects");
         assert_eq!(shorten_path("/home/user"), "~");
         assert_eq!(shorten_path("/tmp/foo/bar"), "/t/f/bar");
@@ -1325,7 +1384,12 @@ mod tests {
     #[test]
     fn test_display_label_shell_with_toplevel() {
         assert_eq!(
-            display_label("zsh", "/home/user/project/src", "", Some("/home/user/project")),
+            display_label(
+                "zsh",
+                "/home/user/project/src",
+                "",
+                Some("/home/user/project")
+            ),
             "project/src/"
         );
         assert_eq!(
@@ -1337,32 +1401,50 @@ mod tests {
     #[test]
     fn test_display_label_shell_without_toplevel() {
         std::env::set_var("HOME", "/home/user");
-        assert_eq!(display_label("zsh", "/home/user/projects/myapp", "", None), "~/p/myapp/");
+        assert_eq!(
+            display_label("zsh", "/home/user/projects/myapp", "", None),
+            "~/p/myapp/"
+        );
         assert_eq!(display_label("bash", "/tmp", "", None), "/tmp/");
     }
 
     #[test]
     fn test_display_label_nvim() {
-        assert_eq!(display_label("nvim", "/home/user", "app.rs", None), "app.rs");
+        assert_eq!(
+            display_label("nvim", "/home/user", "app.rs", None),
+            "app.rs"
+        );
         assert_eq!(display_label("nvim", "/home/user", "", None), "nvim");
     }
 
     #[test]
     fn test_display_label_non_shell() {
         assert_eq!(display_label("vim", "/home/user", "", None), "vim");
-        assert_eq!(display_label("node", "/home/user/project", "", None), "node");
+        assert_eq!(
+            display_label("node", "/home/user/project", "", None),
+            "node"
+        );
     }
 
     #[test]
     fn test_relative_path() {
-        assert_eq!(relative_path("/home/user/project/src/ui", Some("/home/user/project")), "project/src/ui");
-        assert_eq!(relative_path("/home/user/project", Some("/home/user/project")), "project/");
+        assert_eq!(
+            relative_path("/home/user/project/src/ui", Some("/home/user/project")),
+            "project/src/ui"
+        );
+        assert_eq!(
+            relative_path("/home/user/project", Some("/home/user/project")),
+            "project/"
+        );
     }
 
     #[test]
     fn test_relative_path_no_toplevel() {
         std::env::set_var("HOME", "/home/user");
-        assert_eq!(relative_path("/home/user/projects/myapp", None), "~/p/myapp");
+        assert_eq!(
+            relative_path("/home/user/projects/myapp", None),
+            "~/p/myapp"
+        );
     }
 
     #[test]
@@ -1370,7 +1452,12 @@ mod tests {
         std::env::set_var("HOME", "/home/user");
         // When toplevel is None (mismatched session), falls back to shortened absolute path
         assert_eq!(
-            display_label("zsh", "/home/user/src/github.com/nownabe/chikuwa/path/to/dir", "", None),
+            display_label(
+                "zsh",
+                "/home/user/src/github.com/nownabe/chikuwa/path/to/dir",
+                "",
+                None
+            ),
             "~/s/g/n/c/p/t/dir/"
         );
     }
@@ -1557,10 +1644,7 @@ mod tests {
         // Wraps to second line
         assert_eq!(wrap_text("hello world!", 5, 10), vec!["hello", " world!"]);
         // Multiple wraps
-        assert_eq!(
-            wrap_text("abcdefghij", 3, 4),
-            vec!["abc", "defg", "hij"]
-        );
+        assert_eq!(wrap_text("abcdefghij", 3, 4), vec!["abc", "defg", "hij"]);
     }
 
     #[test]
@@ -1625,8 +1709,14 @@ mod tests {
 
     #[test]
     fn test_extract_claude_activity_default_title() {
-        assert_eq!(extract_claude_activity("⠐ Claude Code"), Some("Claude Code".to_string()));
-        assert_eq!(extract_claude_activity("✳ Claude Code"), Some("Claude Code".to_string()));
+        assert_eq!(
+            extract_claude_activity("⠐ Claude Code"),
+            Some("Claude Code".to_string())
+        );
+        assert_eq!(
+            extract_claude_activity("✳ Claude Code"),
+            Some("Claude Code".to_string())
+        );
     }
 
     #[test]
