@@ -87,6 +87,24 @@ fn is_shell(command: &str) -> bool {
     )
 }
 
+/// Shorten a tool detail that contains a file path.
+/// For file-path tools (Read, Edit, Write, NotebookEdit), applies `relative_path`
+/// to make the path shorter while preserving any `:line_number` suffix.
+fn shorten_tool_detail(tool_name: &str, detail: &str, toplevel: Option<&str>) -> String {
+    match tool_name {
+        "Read" | "Write" | "Edit" | "NotebookEdit" => {
+            // Split off `:line_number` suffix if present
+            if let Some((path, line)) = detail.rsplit_once(':') {
+                if line.chars().all(|c| c.is_ascii_digit()) && !path.is_empty() {
+                    return format!("{}:{}", relative_path(path, toplevel), line);
+                }
+            }
+            relative_path(detail, toplevel)
+        }
+        _ => detail.to_string(),
+    }
+}
+
 /// Shorten a path by abbreviating intermediate components to their first char.
 /// e.g. "/home/user/src/github.com/nownabe/chikuwa" → "~/s/g/n/chikuwa"
 fn shorten_path(path: &str) -> String {
@@ -769,13 +787,18 @@ fn render_bordered_agent_status_sub_lines(
     session_attached: bool,
     anim_frame: usize,
 ) -> Vec<Line<'static>> {
-    let (agent, prefix) = match item {
+    let (agent, prefix, toplevel) = match item {
         TreeItem::Window {
             agent_state: Some(agent),
+            session_toplevel,
             ..
-        } => (agent, "  "),
-        TreeItem::Pane { pane, .. } => match pane.agent_state.as_ref() {
-            Some(agent) => (agent, "    "),
+        } => (agent, "  ", session_toplevel.as_deref()),
+        TreeItem::Pane {
+            pane,
+            session_toplevel,
+            ..
+        } => match pane.agent_state.as_ref() {
+            Some(agent) => (agent, "    ", session_toplevel.as_deref()),
             None => return vec![],
         },
         _ => return vec![],
@@ -813,7 +836,10 @@ fn render_bordered_agent_status_sub_lines(
     // Tool lines (one row per active tool)
     for tool in &agent.tools {
         let tool_text = match &tool.detail {
-            Some(detail) => format!("{} {}: {}", theme::ICON_TOOL, tool.name, detail),
+            Some(detail) => {
+                let display_detail = shorten_tool_detail(&tool.name, detail, toplevel);
+                format!("{} {}: {}", theme::ICON_TOOL, tool.name, display_detail)
+            }
             None => format!("{} {}", theme::ICON_TOOL, tool.name),
         };
         let mut tool_spans = vec![
@@ -1748,6 +1774,50 @@ mod tests {
         assert_eq!(
             display_label("node", "/home/user", "✳ Claude Code", None),
             "Claude Code"
+        );
+    }
+
+    #[test]
+    fn test_shorten_tool_detail_read_with_line() {
+        let toplevel = Some("/home/user/project");
+        assert_eq!(
+            shorten_tool_detail("Read", "/home/user/project/src/main.rs:42", toplevel),
+            "project/src/main.rs:42"
+        );
+    }
+
+    #[test]
+    fn test_shorten_tool_detail_read_without_line() {
+        let toplevel = Some("/home/user/project");
+        assert_eq!(
+            shorten_tool_detail("Read", "/home/user/project/src/main.rs", toplevel),
+            "project/src/main.rs"
+        );
+    }
+
+    #[test]
+    fn test_shorten_tool_detail_edit() {
+        let toplevel = Some("/home/user/project");
+        assert_eq!(
+            shorten_tool_detail("Edit", "/home/user/project/src/lib.rs", toplevel),
+            "project/src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn test_shorten_tool_detail_non_file_tool() {
+        assert_eq!(
+            shorten_tool_detail("Bash", "cargo test", None),
+            "cargo test"
+        );
+    }
+
+    #[test]
+    fn test_shorten_tool_detail_no_toplevel() {
+        std::env::set_var("HOME", "/home/user");
+        assert_eq!(
+            shorten_tool_detail("Read", "/home/user/project/src/main.rs:10", None),
+            "~/p/s/main.rs:10"
         );
     }
 }
