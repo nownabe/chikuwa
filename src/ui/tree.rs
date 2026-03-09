@@ -274,13 +274,19 @@ fn git_info_visual_rows(item: &TreeItem, width: u16) -> usize {
     }
 }
 
+/// Check if a character is in the Unicode Private Use Area (used by NerdFont, etc.).
+fn is_private_use(c: char) -> bool {
+    matches!(c as u32, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD)
+}
+
 /// Check if a pane title looks like it was set by Claude Code.
 /// Claude Code titles start with a non-alphanumeric icon character (e.g. "✳", "⠐").
+/// Excludes Private Use Area characters (NerdFont icons, etc.).
 fn is_claude_code_title(pane_title: &str) -> bool {
     pane_title
         .chars()
         .next()
-        .is_some_and(|c| !c.is_alphanumeric() && !c.is_ascii())
+        .is_some_and(|c| !c.is_alphanumeric() && !c.is_ascii() && !is_private_use(c))
 }
 
 /// Extract Claude activity text from a pane title, stripping leading icon characters.
@@ -1834,5 +1840,42 @@ mod tests {
             shorten_tool_detail("Read", "/home/user/project/src/main.rs:10", None),
             "~/p/s/main.rs:10"
         );
+    }
+
+    #[test]
+    fn test_is_claude_code_title_spinner() {
+        assert!(is_claude_code_title("✳ Claude Code"));
+        assert!(is_claude_code_title("⠐ Running task"));
+    }
+
+    #[test]
+    fn test_is_claude_code_title_plain_text() {
+        assert!(!is_claude_code_title("zsh"));
+        assert!(!is_claude_code_title("bash"));
+        assert!(!is_claude_code_title(""));
+    }
+
+    #[test]
+    fn test_is_claude_code_title_nerdfont_icon() {
+        // NerdFont icons are in Private Use Area and should NOT match
+        assert!(!is_claude_code_title("\u{f489} terminal")); // ICON_TERMINAL
+        assert!(!is_claude_code_title("\u{e7c5} nvim")); // ICON_NEOVIM
+        assert!(!is_claude_code_title("\u{f06a9} claude")); // ICON_CLAUDE (PUA)
+        assert!(!is_claude_code_title("\u{f0da} caret")); // ICON_CARET_RIGHT
+    }
+
+    #[test]
+    fn test_is_private_use() {
+        // Basic PUA (U+E000-U+F8FF)
+        assert!(is_private_use('\u{E000}'));
+        assert!(is_private_use('\u{F489}')); // NerdFont terminal icon
+        assert!(is_private_use('\u{F8FF}'));
+        // Supplementary PUA-A
+        assert!(is_private_use('\u{F0000}'));
+        assert!(is_private_use('\u{F06A9}')); // NerdFont claude icon
+        // Not PUA
+        assert!(!is_private_use('a'));
+        assert!(!is_private_use('✳'));
+        assert!(!is_private_use('⠐'));
     }
 }
