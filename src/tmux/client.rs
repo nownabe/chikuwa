@@ -169,10 +169,12 @@ pub async fn register_hooks() -> Result<()> {
         let output = Command::new("tmux")
             .args(["set-hook", "-g", &hook_arg, &cmd])
             .output()
-            .await;
+            .await
+            .context(format!("Failed to execute tmux set-hook for {}", hook_name))?;
 
-        if let Err(e) = output {
-            anyhow::bail!("Failed to register tmux hook {}: {}", hook_name, e);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to register tmux hook {}: {}", hook_name, stderr.trim());
         }
     }
 
