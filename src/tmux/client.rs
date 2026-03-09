@@ -174,7 +174,11 @@ pub async fn register_hooks() -> Result<()> {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to register tmux hook {}: {}", hook_name, stderr.trim());
+            anyhow::bail!(
+                "Failed to register tmux hook {}: {}",
+                hook_name,
+                stderr.trim()
+            );
         }
     }
 
