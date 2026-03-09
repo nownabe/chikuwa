@@ -24,11 +24,29 @@ use crate::ipc;
 use crate::tmux::{client as tmux_client, types::TmuxSession};
 use crate::ui::{status_bar, theme, tree};
 
+/// Strip a leading NerdFont icon (Private Use Area character) and whitespace from a title.
+fn strip_leading_icon(title: &str) -> &str {
+    let mut chars = title.chars();
+    if let Some(c) = chars.next() {
+        let cp = c as u32;
+        if matches!(cp, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD) {
+            return chars.as_str().trim_start();
+        }
+    }
+    title
+}
+
 /// Extract the filename and optional directory from an nvim pane_title.
-/// Nvim titles are typically formatted as "filename (dir) - Nvim".
+/// Supports two formats:
+/// - New: "<icon> relative/path" (NerdFont icon + relative path from repo root)
+/// - Legacy: "filename (dir) - Nvim" or "filename - Nvim"
+///
 /// Plugin UIs like NeoTree produce titles like "neo-tree filesystem [1] - Nvim".
-/// Returns Some((filename, Option<dir>)) for valid file titles, None for plugin UIs.
+/// Returns `Some((filename, Option<dir>))` for valid file titles, `None` for plugin UIs.
 fn extract_nvim_file_info(title: &str) -> Option<(&str, Option<&str>)> {
+    // Strip leading NerdFont icon if present
+    let title = strip_leading_icon(title);
+
     // Nvim standard format: "filename (dir) - Nvim" or "filename - Nvim"
     if let Some(rest) = title.strip_suffix(" - Nvim") {
         // Try to extract "filename (dir)"
@@ -47,9 +65,16 @@ fn extract_nvim_file_info(title: &str) -> Option<(&str, Option<&str>)> {
         }
         return None;
     }
-    // Bare filename without " - Nvim" suffix
-    if !title.is_empty() && !title.contains(' ') && !title.starts_with("term://") {
-        return Some((title, None));
+    // Path or bare filename without " - Nvim" suffix
+    if !title.is_empty() && !title.starts_with("term://") {
+        // If it contains '/', it's a relative path — return as-is
+        if title.contains('/') {
+            return Some((title, None));
+        }
+        // Bare filename (no spaces allowed)
+        if !title.contains(' ') {
+            return Some((title, None));
+        }
     }
     None
 }
@@ -58,6 +83,18 @@ fn extract_nvim_file_info(title: &str) -> Option<(&str, Option<&str>)> {
 /// progressively from left if the result exceeds max_len.
 fn relative_nvim_path(filename: &str, dir: Option<&str>, toplevel: Option<&str>) -> String {
     let Some(dir) = dir else {
+        // New format: filename is already a relative path from repo root.
+        // Prepend repo dir name and shorten.
+        if filename.contains('/') {
+            if let Some(toplevel) = toplevel {
+                let repo_dir = std::path::Path::new(toplevel)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let full = format!("{}/{}", repo_dir, filename);
+                return tree::shorten_relative_path(&full, 30);
+            }
+        }
         return filename.to_string();
     };
     let Some(toplevel) = toplevel else {
@@ -740,6 +777,27 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_nvim_file_info_nerdfont_path() {
+        // New format: NerdFont icon + relative path
+        assert_eq!(
+            extract_nvim_file_info("\u{e7c5} programs/claude/settings.json"),
+            Some(("programs/claude/settings.json", None))
+        );
+        assert_eq!(
+            extract_nvim_file_info("\u{e7c5} src/main.rs"),
+            Some(("src/main.rs", None))
+        );
+    }
+
+    #[test]
+    fn test_extract_nvim_file_info_nerdfont_bare() {
+        assert_eq!(
+            extract_nvim_file_info("\u{e7c5} main.rs"),
+            Some(("main.rs", None))
+        );
+    }
+
+    #[test]
     fn test_extract_nvim_file_info_invalid() {
         assert_eq!(extract_nvim_file_info(""), None);
         assert_eq!(extract_nvim_file_info("neo-tree filesystem [1]"), None);
@@ -749,6 +807,14 @@ mod tests {
         );
         assert_eq!(extract_nvim_file_info("[No Name] - Nvim"), None);
         assert_eq!(extract_nvim_file_info("term://something"), None);
+    }
+
+    #[test]
+    fn test_strip_leading_icon() {
+        assert_eq!(strip_leading_icon("\u{e7c5} src/main.rs"), "src/main.rs");
+        assert_eq!(strip_leading_icon("\u{f489} terminal"), "terminal");
+        assert_eq!(strip_leading_icon("no icon"), "no icon");
+        assert_eq!(strip_leading_icon(""), "");
     }
 
     #[test]
@@ -778,6 +844,27 @@ mod tests {
             relative_nvim_path("app.rs", Some("~/project/src"), None),
             "app.rs"
         );
+    }
+
+    #[test]
+    fn test_relative_nvim_path_new_format() {
+        // New format: relative path from repo root, dir is None
+        assert_eq!(
+            relative_nvim_path("src/main.rs", None, Some("/home/user/project")),
+            "project/src/main.rs"
+        );
+    }
+
+    #[test]
+    fn test_relative_nvim_path_new_format_long() {
+        // Long relative path should be abbreviated
+        let result = relative_nvim_path(
+            "tmp/long/deep/path/from/repo/root/to/test/filename",
+            None,
+            Some("/home/user/project"),
+        );
+        assert!(result.len() <= 30 || !result.contains("long"));
+        assert!(result.ends_with("filename"));
     }
 
     #[test]
