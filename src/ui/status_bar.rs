@@ -9,7 +9,6 @@ use crate::tmux::types::TmuxSession;
 use crate::ui::theme;
 
 pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
-    let mut total_agents = 0u32;
     let mut running = 0u32;
     let mut waiting = 0u32;
     let mut permission = 0u32;
@@ -18,7 +17,6 @@ pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
         for window in &session.windows {
             for pane in &window.panes {
                 if let Some(ref agent) = pane.agent_state {
-                    total_agents += 1;
                     match agent.state {
                         AgentStatus::Running => running += 1,
                         AgentStatus::Waiting => waiting += 1,
@@ -30,13 +28,7 @@ pub fn render(f: &mut Frame, area: Rect, sessions: &[TmuxSession]) {
         }
     }
 
-    let mut spans = vec![
-        Span::styled(
-            format!(" {} agents", total_agents),
-            Style::default().fg(theme::COLOR_WHITE),
-        ),
-        Span::raw(" │ "),
-    ];
+    let mut spans = vec![Span::raw(" ")];
 
     if running > 0 {
         spans.push(Span::styled(
