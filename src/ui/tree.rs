@@ -762,6 +762,8 @@ fn render_bordered_item(
     Line::from(spans)
 }
 
+const MAX_VISIBLE_TOOLS: usize = 5;
+
 /// Check if a tree item has an agent status to display.
 /// Count how many visual sub-lines the agent status occupies (status + optional tool).
 fn agent_status_visual_rows(item: &TreeItem) -> usize {
@@ -776,7 +778,7 @@ fn agent_status_visual_rows(item: &TreeItem) -> usize {
         },
         _ => return 0,
     };
-    1 + agent.tools.len()
+    1 + agent.tools.len().min(MAX_VISIBLE_TOOLS)
 }
 
 /// Render an agent status sub-line (e.g. "· running") for an item.
@@ -825,6 +827,14 @@ fn render_bordered_agent_status_sub_lines(
         ),
         Span::styled(format!(" {}", status_label), dim_style),
     ];
+    if !agent.tools.is_empty() {
+        let tool_count_label = if agent.tools.len() == 1 {
+            " (1 tool)".to_string()
+        } else {
+            format!(" ({} tools)", agent.tools.len())
+        };
+        status_spans.push(Span::styled(tool_count_label, dim_style));
+    }
     truncate_spans(&mut status_spans, content_width);
     let mut result = vec![wrap_bordered_line(
         status_spans,
@@ -833,8 +843,13 @@ fn render_bordered_agent_status_sub_lines(
         border_style,
     )];
 
-    // Tool lines (one row per active tool)
-    for tool in &agent.tools {
+    // Tool lines (one row per active tool, capped to most recent MAX_VISIBLE_TOOLS)
+    let visible_tools = if agent.tools.len() > MAX_VISIBLE_TOOLS {
+        &agent.tools[agent.tools.len() - MAX_VISIBLE_TOOLS..]
+    } else {
+        &agent.tools
+    };
+    for tool in visible_tools {
         let tool_text = match &tool.detail {
             Some(detail) => {
                 let display_detail = shorten_tool_detail(&tool.name, detail, toplevel);
