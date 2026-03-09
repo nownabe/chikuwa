@@ -203,8 +203,10 @@ pub(crate) fn shorten_relative_path(path: &str, max_len: usize) -> String {
 
 /// Compute a display label: relative path for shells, pane_title for nvim, command name otherwise.
 fn display_label(command: &str, path: &str, pane_title: &str, toplevel: Option<&str>) -> String {
-    if let Some(activity) = extract_claude_activity(pane_title) {
-        return activity;
+    if is_claude_command(command) {
+        if let Some(activity) = extract_claude_activity(pane_title) {
+            return activity;
+        }
     }
     if is_shell(command) {
         let p = relative_path(path, toplevel);
@@ -225,15 +227,15 @@ fn item_git_info(item: &TreeItem) -> Option<(&GitInfo, &'static str)> {
     match item {
         TreeItem::Window {
             git_info: Some(gi),
-            pane_title,
+            pane_current_command,
             ..
-        } if is_claude_code_title(pane_title.as_deref().unwrap_or(""))
+        } if is_claude_command(pane_current_command.as_deref().unwrap_or(""))
             && (gi.branch.is_some() || gi.pr.is_some()) =>
         {
             Some((gi, "  "))
         }
         TreeItem::Pane { pane, .. }
-            if is_claude_code_title(&pane.pane_title)
+            if is_claude_command(&pane.pane_current_command)
                 && pane
                     .git_info
                     .as_ref()
@@ -274,21 +276,14 @@ fn git_info_visual_rows(item: &TreeItem, width: u16) -> usize {
     }
 }
 
-/// Check if a pane title looks like it was set by Claude Code.
-/// Claude Code titles start with a non-alphanumeric icon character (e.g. "✳", "⠐").
-fn is_claude_code_title(pane_title: &str) -> bool {
-    pane_title
-        .chars()
-        .next()
-        .is_some_and(|c| !c.is_alphanumeric() && !c.is_ascii())
+fn is_claude_command(command: &str) -> bool {
+    command == "claude"
 }
 
 /// Extract Claude activity text from a pane title, stripping leading icon characters.
-/// Returns None if the title doesn't look like a Claude Code title, or is the default "Claude Code".
+/// Returns None if the title is empty after stripping.
+/// Only call this when the pane is already known to be Claude Code (via command check).
 fn extract_claude_activity(pane_title: &str) -> Option<String> {
-    if !is_claude_code_title(pane_title) {
-        return None;
-    }
     // Strip the leading spinner/icon character and whitespace.
     // Pane titles look like "✳ Some task" or "⠐ Claude Code".
     let activity = pane_title
@@ -1050,14 +1045,13 @@ fn truncate_spans(spans: &mut Vec<Span<'static>>, max_width: usize) {
 /// Priority: claude > neovim > shell > multi-pane window. Fallback: terminal.
 fn item_icon(
     agent_state: Option<&AgentState>,
-    pane_title: &str,
     command: Option<&str>,
     has_multiple_panes: bool,
 ) -> &'static str {
-    if agent_state.is_some() || is_claude_code_title(pane_title) {
-        return theme::ICON_CLAUDE;
-    }
     if let Some(cmd) = command {
+        if agent_state.is_some() || is_claude_command(cmd) {
+            return theme::ICON_CLAUDE;
+        }
         if cmd == "nvim" {
             return theme::ICON_NEOVIM;
         }
@@ -1093,7 +1087,6 @@ fn render_content_spans(
 
             let icon = item_icon(
                 agent_state.as_ref(),
-                pane_title.as_deref().unwrap_or(""),
                 pane_current_command.as_deref(),
                 *has_multiple_panes,
             );
@@ -1138,7 +1131,6 @@ fn render_content_spans(
         } => {
             let icon = item_icon(
                 pane.agent_state.as_ref(),
-                &pane.pane_title,
                 Some(&pane.pane_current_command),
                 false,
             );
@@ -1611,7 +1603,7 @@ mod tests {
                     panes: vec![{
                         let mut p = make_pane_with_git(
                             "%0",
-                            "node",
+                            "claude",
                             GitInfo {
                                 branch: Some("main".to_string()),
                                 pr: None,
@@ -1704,7 +1696,7 @@ mod tests {
                 worktree_name: None,
             }),
             pane_current_path: None,
-            pane_current_command: None,
+            pane_current_command: Some("claude".to_string()),
             pane_title: Some("✳ Claude Code".to_string()),
             has_multiple_panes: false,
             session_toplevel: None,
@@ -1725,7 +1717,7 @@ mod tests {
                 worktree_name: None,
             }),
             pane_current_path: None,
-            pane_current_command: None,
+            pane_current_command: Some("zsh".to_string()),
             pane_title: None,
             has_multiple_panes: false,
             session_toplevel: None,
@@ -1761,21 +1753,19 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_claude_activity_none_for_non_claude() {
-        // Regular pane titles (no leading icon) should return None
+    fn test_extract_claude_activity_none_for_plain() {
         assert_eq!(extract_claude_activity(""), None);
-        assert_eq!(extract_claude_activity("zsh"), None);
-        assert_eq!(extract_claude_activity("~/src/project"), None);
+        assert_eq!(extract_claude_activity("zsh"), Some("zsh".to_string()));
     }
 
     #[test]
     fn test_display_label_claude_activity() {
         assert_eq!(
-            display_label("node", "/home/user", "✳ Rust環境変数設定", None),
+            display_label("claude", "/home/user", "✳ Rust環境変数設定", None),
             "Rust環境変数設定"
         );
         assert_eq!(
-            display_label("node", "/home/user", "✳ Fixing bug", None),
+            display_label("claude", "/home/user", "✳ Fixing bug", None),
             "Fixing bug"
         );
     }
@@ -1783,12 +1773,22 @@ mod tests {
     #[test]
     fn test_display_label_claude_default_title() {
         assert_eq!(
-            display_label("node", "/home/user", "⠐ Claude Code", None),
+            display_label("claude", "/home/user", "⠐ Claude Code", None),
             "Claude Code"
         );
         assert_eq!(
-            display_label("node", "/home/user", "✳ Claude Code", None),
+            display_label("claude", "/home/user", "✳ Claude Code", None),
             "Claude Code"
+        );
+    }
+
+    #[test]
+    fn test_display_label_non_claude_with_icon_title() {
+        // Non-claude command with icon in title should NOT extract activity
+        std::env::set_var("HOME", "/home/user");
+        assert_eq!(
+            display_label("zsh", "/home/user/src", "✳ some title", None),
+            "~/src/"
         );
     }
 
@@ -1834,5 +1834,13 @@ mod tests {
             shorten_tool_detail("Read", "/home/user/project/src/main.rs:10", None),
             "~/p/s/main.rs:10"
         );
+    }
+
+    #[test]
+    fn test_is_claude_command() {
+        assert!(is_claude_command("claude"));
+        assert!(!is_claude_command("node"));
+        assert!(!is_claude_command("zsh"));
+        assert!(!is_claude_command(""));
     }
 }
