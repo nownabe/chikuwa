@@ -40,8 +40,9 @@ fn strip_leading_icon(title: &str) -> &str {
 /// Supports two formats:
 /// - New: "<icon> relative/path" (NerdFont icon + relative path from repo root)
 /// - Legacy: "filename (dir) - Nvim" or "filename - Nvim"
+///
 /// Plugin UIs like NeoTree produce titles like "neo-tree filesystem [1] - Nvim".
-/// Returns Some((filename, Option<dir>)) for valid file titles, None for plugin UIs.
+/// Returns `Some((filename, Option<dir>))` for valid file titles, `None` for plugin UIs.
 fn extract_nvim_file_info(title: &str) -> Option<(&str, Option<&str>)> {
     // Strip leading NerdFont icon if present
     let title = strip_leading_icon(title);
