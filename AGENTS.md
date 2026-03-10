@@ -52,6 +52,10 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/). Common type
 - `docs` — documentation only
 - `chore` — build, CI, tooling, etc.
 
+## Color Palette (CRITICAL)
+
+The TUI uses **only** three colors: **white**, **light purple**, and **purple** (defined in `ui/theme.rs` as `COLOR_WHITE`, `COLOR_LIGHT_PURPLE`, `COLOR_PURPLE`). All UI elements — text, icons, gauges, highlights — MUST use only these three colors. Never introduce additional colors (no green, red, yellow, etc.).
+
 ## Conventions
 
 - Keep dependencies minimal. Prefer standard library where possible.

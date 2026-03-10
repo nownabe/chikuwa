@@ -24,6 +24,14 @@ pub const ICON_WINDOW: &str = "\u{f10aa}"; // 󱂪
 pub const ICON_BOLT: &str = "\u{f0e7}"; //
 pub const ICON_TOOL: &str = "\u{f0ad}"; //
 pub const COLOR_YELLOW: Color = Color::Rgb(0xff, 0xd7, 0x00);
+/// Return a color for a usage utilization value (0.0–1.0).
+pub fn usage_color(utilization: f64) -> Color {
+    if utilization < 0.8 {
+        COLOR_LIGHT_PURPLE
+    } else {
+        COLOR_WHITE
+    }
+}
 
 pub fn status_icon(status: &AgentStatus, anim_frame: usize) -> &'static str {
     match status {

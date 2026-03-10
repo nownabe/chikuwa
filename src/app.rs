@@ -23,6 +23,7 @@ use crate::git::GitInfoCache;
 use crate::ipc;
 use crate::tmux::{client as tmux_client, types::TmuxSession};
 use crate::ui::{status_bar, theme, tree};
+use crate::usage::Usage;
 
 /// Strip a leading NerdFont icon (Private Use Area character) and whitespace from a title.
 fn strip_leading_icon(title: &str) -> &str {
@@ -149,6 +150,8 @@ pub struct App {
     /// True when the user has navigated manually (Up/Down/Top/Bottom).
     /// Prevents auto-follow of the active tmux pane until the user selects an item.
     user_navigated: bool,
+    /// Claude API usage data (fetched periodically).
+    usage: Option<Usage>,
 }
 
 impl App {
@@ -166,6 +169,7 @@ impl App {
             nvim_title_cache: HashMap::new(),
             last_width: 80,
             user_navigated: false,
+            usage: None,
         }
     }
 
@@ -509,6 +513,25 @@ async fn run_app(
         }
     });
 
+    // Usage polling (every 5 min, fire immediately on start)
+    let usage_tx = tx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            match crate::usage::fetch_usage().await {
+                Ok(usage) => {
+                    if usage_tx.send(AppEvent::UsageUpdate(usage)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Usage fetch error: {:#}", e);
+                }
+            }
+        }
+    });
+
     loop {
         // Draw
         terminal.draw(|f| {
@@ -519,7 +542,7 @@ async fn run_app(
                 .constraints([
                     Constraint::Length(3),
                     Constraint::Min(3),
-                    Constraint::Length(2),
+                    Constraint::Length(3),
                 ])
                 .split(size);
 
@@ -631,7 +654,7 @@ async fn run_app(
             );
 
             // Render status bar
-            status_bar::render(f, chunks[2], &app.sessions);
+            status_bar::render(f, chunks[2], &app.sessions, app.usage.as_ref());
         })?;
 
         if app.should_quit {
@@ -662,6 +685,9 @@ async fn run_app(
                 }
                 AppEvent::AnimationTick => {
                     app.anim_frame = app.anim_frame.wrapping_add(1);
+                }
+                AppEvent::UsageUpdate(usage) => {
+                    app.usage = Some(usage);
                 }
                 AppEvent::AgentStateUpdate(state) => {
                     if let Some(ref mut log) = event_log {
