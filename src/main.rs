@@ -11,7 +11,7 @@ mod usage;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "chikuwa", about = "tmux AI Agent monitor TUI")]
+#[command(name = "chikuwa", about = "tmux AI Agent monitor TUI", version)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
