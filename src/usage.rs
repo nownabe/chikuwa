@@ -49,14 +49,14 @@ fn read_access_token() -> Result<String> {
 #[derive(Debug)]
 pub enum FetchResult {
     Success(Usage),
-    RateLimited,
-    Error(anyhow::Error),
+    RateLimited(String),
+    Error(String),
 }
 
 pub async fn fetch_usage() -> FetchResult {
     let token = match read_access_token() {
         Ok(t) => t,
-        Err(e) => return FetchResult::Error(e),
+        Err(_) => return FetchResult::Error("credentials error".to_string()),
     };
     let client = reqwest::Client::new();
     let resp = match client
@@ -67,21 +67,27 @@ pub async fn fetch_usage() -> FetchResult {
         .await
     {
         Ok(r) => r,
-        Err(e) => return FetchResult::Error(anyhow::anyhow!("Failed to send usage request: {e}")),
+        Err(_) => return FetchResult::Error("network error".to_string()),
     };
     if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        return FetchResult::RateLimited;
+        return FetchResult::RateLimited("429 Too Many Requests".to_string());
     }
     let resp = match resp.error_for_status() {
         Ok(r) => r,
-        Err(e) => return FetchResult::Error(anyhow::anyhow!("Usage API returned error: {e}")),
+        Err(e) => {
+            let msg = e
+                .status()
+                .map(|s| format!("API error ({})", s.as_u16()))
+                .unwrap_or_else(|| "API error".to_string());
+            return FetchResult::Error(msg);
+        }
     };
     match resp.json::<ApiResponse>().await {
         Ok(api) => FetchResult::Success(Usage {
             five_hour: api.five_hour.utilization / 100.0,
             seven_day: api.seven_day.utilization / 100.0,
         }),
-        Err(e) => FetchResult::Error(anyhow::anyhow!("Failed to parse usage response: {e}")),
+        Err(_) => FetchResult::Error("parse error".to_string()),
     }
 }
 

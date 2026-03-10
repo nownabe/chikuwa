@@ -151,7 +151,9 @@ pub struct App {
     /// Prevents auto-follow of the active tmux pane until the user selects an item.
     user_navigated: bool,
     /// Claude API usage data (fetched periodically).
-    usage: Option<Usage>,
+    usage: Option<Result<Usage, String>>,
+    /// When the next usage fetch is scheduled.
+    usage_next_fetch: Option<std::time::Instant>,
 }
 
 impl App {
@@ -170,6 +172,7 @@ impl App {
             last_width: 80,
             user_navigated: false,
             usage: None,
+            usage_next_fetch: None,
         }
     }
 
@@ -530,15 +533,32 @@ async fn run_app(
             match crate::usage::fetch_usage().await {
                 crate::usage::FetchResult::Success(usage) => {
                     current_interval = BASE_INTERVAL;
-                    if usage_tx.send(AppEvent::UsageUpdate(usage)).await.is_err() {
+                    if usage_tx
+                        .send(AppEvent::UsageUpdate(usage, current_interval))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
-                crate::usage::FetchResult::RateLimited => {
+                crate::usage::FetchResult::RateLimited(msg) => {
                     current_interval = (current_interval * 2).min(MAX_INTERVAL);
+                    if usage_tx
+                        .send(AppEvent::UsageError(msg, current_interval))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
-                crate::usage::FetchResult::Error(e) => {
-                    eprintln!("Usage fetch error: {:#}", e);
+                crate::usage::FetchResult::Error(msg) => {
+                    if usage_tx
+                        .send(AppEvent::UsageError(msg, current_interval))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -666,7 +686,17 @@ async fn run_app(
             );
 
             // Render status bar
-            status_bar::render(f, chunks[2], &app.sessions, app.usage.as_ref());
+            let usage_remaining = app.usage_next_fetch.map(|t| {
+                t.saturating_duration_since(std::time::Instant::now())
+                    .as_secs()
+            });
+            status_bar::render(
+                f,
+                chunks[2],
+                &app.sessions,
+                app.usage.as_ref().map(|r| r.as_ref()),
+                usage_remaining,
+            );
         })?;
 
         if app.should_quit {
@@ -698,8 +728,15 @@ async fn run_app(
                 AppEvent::AnimationTick => {
                     app.anim_frame = app.anim_frame.wrapping_add(1);
                 }
-                AppEvent::UsageUpdate(usage) => {
-                    app.usage = Some(usage);
+                AppEvent::UsageUpdate(usage, next_secs) => {
+                    app.usage = Some(Ok(usage));
+                    app.usage_next_fetch =
+                        Some(std::time::Instant::now() + Duration::from_secs(next_secs));
+                }
+                AppEvent::UsageError(msg, next_secs) => {
+                    app.usage = Some(Err(msg));
+                    app.usage_next_fetch =
+                        Some(std::time::Instant::now() + Duration::from_secs(next_secs));
                 }
                 AppEvent::AgentStateUpdate(state) => {
                     if let Some(ref mut log) = event_log {
