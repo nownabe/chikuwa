@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/nownabe/chikuwa/compare/v0.1.5...v0.1.6) - 2026-03-10
+
+### Added
+
+- display Claude API usage gauges in status bar ([#26](https://github.com/nownabe/chikuwa/pull/26))
+
 ## [0.1.5](https://github.com/nownabe/chikuwa/compare/v0.1.4...v0.1.5) - 2026-03-09
 
 ### Added
