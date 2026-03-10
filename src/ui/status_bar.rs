@@ -101,9 +101,6 @@ pub fn render(
             spans.extend(gauge_spans("5h", usage.five_hour));
             spans.push(Span::raw("  "));
             spans.extend(gauge_spans("7d", usage.seven_day));
-            if let Some(span) = remaining_span {
-                spans.push(span);
-            }
             Line::from(spans)
         }
         Some(Err(msg)) => {
