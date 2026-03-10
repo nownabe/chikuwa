@@ -83,10 +83,7 @@ mod tests {
     fn test_parse_credentials() {
         let json = r#"{"claudeAiOauth":{"accessToken":"tok_123"}}"#;
         let creds: Credentials = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            creds.claude_ai_oauth.unwrap().access_token,
-            "tok_123"
-        );
+        assert_eq!(creds.claude_ai_oauth.unwrap().access_token, "tok_123");
     }
 
     #[test]
