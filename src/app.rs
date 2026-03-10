@@ -513,19 +513,31 @@ async fn run_app(
         }
     });
 
-    // Usage polling (every 5 min, fire immediately on start)
+    // Usage polling (10 min base, exponential backoff on 429)
     let usage_tx = tx.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(300));
+        const BASE_INTERVAL: u64 = 600; // 10 minutes
+        const MAX_INTERVAL: u64 = 3600; // 1 hour cap
+        let mut current_interval = BASE_INTERVAL;
+        // Fetch immediately on start, then loop with delay
+        let mut first = true;
         loop {
-            interval.tick().await;
+            if first {
+                first = false;
+            } else {
+                tokio::time::sleep(Duration::from_secs(current_interval)).await;
+            }
             match crate::usage::fetch_usage().await {
-                Ok(usage) => {
+                crate::usage::FetchResult::Success(usage) => {
+                    current_interval = BASE_INTERVAL;
                     if usage_tx.send(AppEvent::UsageUpdate(usage)).await.is_err() {
                         break;
                     }
                 }
-                Err(e) => {
+                crate::usage::FetchResult::RateLimited => {
+                    current_interval = (current_interval * 2).min(MAX_INTERVAL);
+                }
+                crate::usage::FetchResult::Error(e) => {
                     eprintln!("Usage fetch error: {:#}", e);
                 }
             }
