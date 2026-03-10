@@ -72,6 +72,39 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Update flake.nix version in release PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Find the open release PR created by release-plz
+          PR_BRANCH=$(gh pr list --state open --json headRefName --jq '[.[] | select(.headRefName | startswith("release-plz"))][0].headRefName // empty')
+          if [ -z "$PR_BRANCH" ]; then
+            echo "No open release-plz PR found, skipping"
+            exit 0
+          fi
+
+          # Fetch and checkout the PR branch
+          git fetch origin "$PR_BRANCH"
+          git checkout "$PR_BRANCH"
+
+          # Extract version from Cargo.toml
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+
+          # Update flake.nix
+          sed -i "s/version = \"[0-9][0-9.]*\"/version = \"$VERSION\"/" flake.nix
+
+          # Only commit and push if there are changes
+          if git diff --quiet flake.nix; then
+            echo "flake.nix already up to date"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git add flake.nix
+          git commit -m "chore: update flake.nix version to $VERSION"
+          git push origin "$PR_BRANCH"
 
   upload-binary:
     needs: release-plz-release
