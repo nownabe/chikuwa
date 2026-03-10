@@ -93,9 +93,8 @@ pub fn render(
 
     // Line 2: usage gauges or error
     let gray = Style::default().fg(Color::Rgb(0x7a, 0x7a, 0x7a));
-    let remaining_span = usage_remaining_secs.map(|s| {
-        Span::styled(format!("  next in {}", format_remaining(s)), gray)
-    });
+    let remaining_span = usage_remaining_secs
+        .map(|s| Span::styled(format!("  next in {}", format_remaining(s)), gray));
     let line2 = match usage {
         Some(Ok(usage)) => {
             let mut spans: Vec<Span> = vec![Span::raw(" ")];
@@ -108,10 +107,7 @@ pub fn render(
             Line::from(spans)
         }
         Some(Err(msg)) => {
-            let mut spans = vec![
-                Span::raw(" "),
-                Span::styled(msg.to_string(), gray),
-            ];
+            let mut spans = vec![Span::raw(" "), Span::styled(msg.to_string(), gray)];
             if let Some(span) = remaining_span {
                 spans.push(span);
             }

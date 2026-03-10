@@ -686,9 +686,10 @@ async fn run_app(
             );
 
             // Render status bar
-            let usage_remaining = app
-                .usage_next_fetch
-                .map(|t| t.saturating_duration_since(std::time::Instant::now()).as_secs());
+            let usage_remaining = app.usage_next_fetch.map(|t| {
+                t.saturating_duration_since(std::time::Instant::now())
+                    .as_secs()
+            });
             status_bar::render(
                 f,
                 chunks[2],
@@ -729,15 +730,13 @@ async fn run_app(
                 }
                 AppEvent::UsageUpdate(usage, next_secs) => {
                     app.usage = Some(Ok(usage));
-                    app.usage_next_fetch = Some(
-                        std::time::Instant::now() + Duration::from_secs(next_secs),
-                    );
+                    app.usage_next_fetch =
+                        Some(std::time::Instant::now() + Duration::from_secs(next_secs));
                 }
                 AppEvent::UsageError(msg, next_secs) => {
                     app.usage = Some(Err(msg));
-                    app.usage_next_fetch = Some(
-                        std::time::Instant::now() + Duration::from_secs(next_secs),
-                    );
+                    app.usage_next_fetch =
+                        Some(std::time::Instant::now() + Duration::from_secs(next_secs));
                 }
                 AppEvent::AgentStateUpdate(state) => {
                     if let Some(ref mut log) = event_log {
