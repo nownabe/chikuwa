@@ -83,7 +83,7 @@ jobs:
             exit 0
           fi
 
-          # Fetch and checkout the PR branch
+          # Fetch and checkout the PR branch to read files locally
           git fetch origin "$PR_BRANCH"
           git checkout "$PR_BRANCH"
 
@@ -93,18 +93,20 @@ jobs:
           # Update flake.nix
           sed -i "s/version = \"[0-9][0-9.]*\"/version = \"$VERSION\"/" flake.nix
 
-          # Only commit and push if there are changes
+          # Only commit if there are changes
           if git diff --quiet flake.nix; then
             echo "flake.nix already up to date"
             exit 0
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git add flake.nix
-          git commit -m "chore: update flake.nix version to $VERSION"
-          git push origin "$PR_BRANCH"
+          # Create a signed commit via GitHub API
+          FLAKE_SHA=$(gh api "repos/${{ github.repository }}/contents/flake.nix?ref=${PR_BRANCH}" --jq '.sha')
+          gh api "repos/${{ github.repository }}/contents/flake.nix" \
+            --method PUT \
+            -f message="chore: update flake.nix version to ${VERSION}" \
+            -f content="$(base64 -w 0 < flake.nix)" \
+            -f sha="${FLAKE_SHA}" \
+            -f branch="${PR_BRANCH}"
 
   upload-binary:
     needs: release-plz-release
