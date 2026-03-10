@@ -6,6 +6,7 @@ mod hook;
 mod ipc;
 mod tmux;
 mod ui;
+mod usage;
 
 use clap::{Parser, Subcommand};
 

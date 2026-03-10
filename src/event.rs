@@ -5,6 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
 use crate::agent::state::AgentState;
+use crate::usage::Usage;
 
 /// Application events.
 #[derive(Debug)]
@@ -14,6 +15,7 @@ pub enum AppEvent {
     AnimationTick,
     AgentStateUpdate(AgentState),
     TmuxChanged,
+    UsageUpdate(Usage),
 }
 
 /// Spawn an event loop that sends key events and periodic ticks.
