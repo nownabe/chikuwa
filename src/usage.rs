@@ -45,26 +45,44 @@ fn read_access_token() -> Result<String> {
         .context("No claudeAiOauth.accessToken in credentials")
 }
 
-pub async fn fetch_usage() -> Result<Usage> {
-    let token = read_access_token()?;
+/// Result of a usage fetch attempt.
+#[derive(Debug)]
+pub enum FetchResult {
+    Success(Usage),
+    RateLimited,
+    Error(anyhow::Error),
+}
+
+pub async fn fetch_usage() -> FetchResult {
+    let token = match read_access_token() {
+        Ok(t) => t,
+        Err(e) => return FetchResult::Error(e),
+    };
     let client = reqwest::Client::new();
-    let resp = client
+    let resp = match client
         .get("https://api.anthropic.com/api/oauth/usage")
         .bearer_auth(&token)
         .header("anthropic-beta", "oauth-2025-04-20")
         .send()
         .await
-        .context("Failed to send usage request")?
-        .error_for_status()
-        .context("Usage API returned error status")?;
-    let api: ApiResponse = resp
-        .json()
-        .await
-        .context("Failed to parse usage response")?;
-    Ok(Usage {
-        five_hour: api.five_hour.utilization / 100.0,
-        seven_day: api.seven_day.utilization / 100.0,
-    })
+    {
+        Ok(r) => r,
+        Err(e) => return FetchResult::Error(anyhow::anyhow!("Failed to send usage request: {e}")),
+    };
+    if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return FetchResult::RateLimited;
+    }
+    let resp = match resp.error_for_status() {
+        Ok(r) => r,
+        Err(e) => return FetchResult::Error(anyhow::anyhow!("Usage API returned error: {e}")),
+    };
+    match resp.json::<ApiResponse>().await {
+        Ok(api) => FetchResult::Success(Usage {
+            five_hour: api.five_hour.utilization / 100.0,
+            seven_day: api.seven_day.utilization / 100.0,
+        }),
+        Err(e) => FetchResult::Error(anyhow::anyhow!("Failed to parse usage response: {e}")),
+    }
 }
 
 #[cfg(test)]
