@@ -70,6 +70,13 @@ cargo install --path .
 nix profile install github:nownabe/chikuwa
 ```
 
+Pre-built binaries are available via [Cachix](https://app.cachix.org/cache/chikuwa):
+
+```sh
+cachix use chikuwa
+nix profile install github:nownabe/chikuwa
+```
+
 Requires a [Nerd Font](https://www.nerdfonts.com/) for icons.
 
 ## Usage
