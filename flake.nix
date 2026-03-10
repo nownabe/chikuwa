@@ -13,7 +13,7 @@
     {
       packages.${system}.default = pkgs.rustPlatform.buildRustPackage {
         pname = "chikuwa";
-        version = "0.1.7";
+        version = "0.1.8";
 
         src = ./.;
 
