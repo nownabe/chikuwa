@@ -453,7 +453,11 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize, width: u16) -> usiz
 /// Reverse mapping: given a visual row, return the item index that occupies it.
 /// Session borders (top/bottom) and agent status / git sub-lines map to their
 /// parent item index. Returns `None` if the visual row is out of range.
-pub fn visual_row_to_item(items: &[TreeItem], target_visual_row: usize, width: u16) -> Option<usize> {
+pub fn visual_row_to_item(
+    items: &[TreeItem],
+    target_visual_row: usize,
+    width: u16,
+) -> Option<usize> {
     let mut visual = 0;
     let mut i = 0;
 
