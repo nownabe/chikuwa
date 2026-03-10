@@ -15,7 +15,10 @@ pub enum AppEvent {
     AnimationTick,
     AgentStateUpdate(AgentState),
     TmuxChanged,
-    UsageUpdate(Usage),
+    /// Usage data fetched successfully. Second field is seconds until next fetch.
+    UsageUpdate(Usage, u64),
+    /// Usage fetch failed. Second field is seconds until next fetch.
+    UsageError(String, u64),
 }
 
 /// Spawn an event loop that sends key events and periodic ticks.
