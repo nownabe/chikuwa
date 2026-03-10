@@ -450,6 +450,95 @@ pub fn item_to_visual_row(items: &[TreeItem], target: usize, width: u16) -> usiz
     visual
 }
 
+/// Reverse mapping: given a visual row, return the item index that occupies it.
+/// Session borders (top/bottom) and agent status / git sub-lines map to their
+/// parent item index. Returns `None` if the visual row is out of range.
+pub fn visual_row_to_item(
+    items: &[TreeItem],
+    target_visual_row: usize,
+    width: u16,
+) -> Option<usize> {
+    let mut visual = 0;
+    let mut i = 0;
+
+    while i < items.len() {
+        match &items[i] {
+            TreeItem::Session {
+                collapsed: true, ..
+            } => {
+                if visual == target_visual_row {
+                    return Some(i);
+                }
+                visual += 1;
+                i += 1;
+            }
+            TreeItem::Session {
+                collapsed: false, ..
+            } => {
+                // top border
+                if visual == target_visual_row {
+                    return Some(i);
+                }
+                visual += 1;
+                let session_idx = i;
+                i += 1;
+
+                while i < items.len() && !matches!(&items[i], TreeItem::Session { .. }) {
+                    // main row for this item
+                    if visual == target_visual_row {
+                        return Some(i);
+                    }
+                    visual += 1;
+
+                    // agent status sub-lines
+                    let agent_rows = agent_status_visual_rows(&items[i]);
+                    if target_visual_row < visual + agent_rows {
+                        return Some(i);
+                    }
+                    visual += agent_rows;
+
+                    // git info sub-lines
+                    let git_rows = git_info_visual_rows(&items[i], width);
+                    if target_visual_row < visual + git_rows {
+                        return Some(i);
+                    }
+                    visual += git_rows;
+
+                    i += 1;
+                }
+
+                // bottom border
+                if visual == target_visual_row {
+                    return Some(session_idx);
+                }
+                visual += 1;
+            }
+            _ => {
+                if visual == target_visual_row {
+                    return Some(i);
+                }
+                visual += 1;
+
+                let agent_rows = agent_status_visual_rows(&items[i]);
+                if target_visual_row < visual + agent_rows {
+                    return Some(i);
+                }
+                visual += agent_rows;
+
+                let git_rows = git_info_visual_rows(&items[i], width);
+                if target_visual_row < visual + git_rows {
+                    return Some(i);
+                }
+                visual += git_rows;
+
+                i += 1;
+            }
+        }
+    }
+
+    None
+}
+
 /// Total number of visual rows.
 pub fn total_visual_rows(items: &[TreeItem], width: u16) -> usize {
     let mut visual = 0;
@@ -1842,5 +1931,186 @@ mod tests {
         assert!(!is_claude_command("node"));
         assert!(!is_claude_command("zsh"));
         assert!(!is_claude_command(""));
+    }
+
+    #[test]
+    fn test_visual_row_to_item_collapsed() {
+        let items = vec![
+            TreeItem::Session {
+                name: "a".to_string(),
+                attached: true,
+                collapsed: true,
+                repo_name: None,
+                worktree_name: None,
+            },
+            TreeItem::Session {
+                name: "b".to_string(),
+                attached: false,
+                collapsed: true,
+                repo_name: None,
+                worktree_name: None,
+            },
+        ];
+
+        assert_eq!(visual_row_to_item(&items, 0, 80), Some(0));
+        assert_eq!(visual_row_to_item(&items, 1, 80), Some(1));
+        assert_eq!(visual_row_to_item(&items, 2, 80), None);
+    }
+
+    #[test]
+    fn test_visual_row_to_item_expanded_no_git() {
+        let sessions = vec![TmuxSession {
+            session_name: "main".to_string(),
+            session_attached: true,
+            repo_name: None,
+            toplevel: None,
+            worktree_name: None,
+            windows: vec![
+                TmuxWindow {
+                    window_index: 0,
+                    window_name: "a".to_string(),
+                    window_active: true,
+                    panes: vec![make_pane("%0", "zsh", None)],
+                },
+                TmuxWindow {
+                    window_index: 1,
+                    window_name: "b".to_string(),
+                    window_active: false,
+                    panes: vec![make_pane("%1", "zsh", None)],
+                },
+            ],
+        }];
+        let items = flatten(&sessions, &HashSet::new());
+
+        // top_border(0) → session, window_a(1) → item 1, window_b(2) → item 2, bottom_border(3) → session
+        assert_eq!(visual_row_to_item(&items, 0, 80), Some(0)); // top border → session
+        assert_eq!(visual_row_to_item(&items, 1, 80), Some(1)); // window a
+        assert_eq!(visual_row_to_item(&items, 2, 80), Some(2)); // window b
+        assert_eq!(visual_row_to_item(&items, 3, 80), Some(0)); // bottom border → session
+        assert_eq!(visual_row_to_item(&items, 4, 80), None);
+    }
+
+    #[test]
+    fn test_visual_row_to_item_with_git() {
+        let sessions = vec![TmuxSession {
+            session_name: "main".to_string(),
+            session_attached: true,
+            repo_name: None,
+            toplevel: None,
+            worktree_name: None,
+            windows: vec![
+                TmuxWindow {
+                    window_index: 0,
+                    window_name: "claude".to_string(),
+                    window_active: true,
+                    panes: vec![{
+                        let mut p = make_pane_with_git(
+                            "%0",
+                            "claude",
+                            GitInfo {
+                                branch: Some("main".to_string()),
+                                pr: None,
+                                repo_name: None,
+                                toplevel: None,
+                                worktree_name: None,
+                            },
+                        );
+                        p.pane_title = "✳ Claude Code".to_string();
+                        p
+                    }],
+                },
+                TmuxWindow {
+                    window_index: 1,
+                    window_name: "zsh".to_string(),
+                    window_active: false,
+                    panes: vec![make_pane("%1", "zsh", None)],
+                },
+            ],
+        }];
+        let items = flatten(&sessions, &HashSet::new());
+
+        // top_border(0), window_claude(1), git_sub(2), window_zsh(3), bottom_border(4)
+        assert_eq!(visual_row_to_item(&items, 0, 80), Some(0)); // top border → session
+        assert_eq!(visual_row_to_item(&items, 1, 80), Some(1)); // window claude
+        assert_eq!(visual_row_to_item(&items, 2, 80), Some(1)); // git sub-line → window claude
+        assert_eq!(visual_row_to_item(&items, 3, 80), Some(2)); // window zsh
+        assert_eq!(visual_row_to_item(&items, 4, 80), Some(0)); // bottom border → session
+    }
+
+    #[test]
+    fn test_visual_row_to_item_mixed() {
+        let items = vec![
+            TreeItem::Session {
+                name: "collapsed".to_string(),
+                attached: false,
+                collapsed: true,
+                repo_name: None,
+                worktree_name: None,
+            },
+            TreeItem::Session {
+                name: "expanded".to_string(),
+                attached: true,
+                collapsed: false,
+                repo_name: None,
+                worktree_name: None,
+            },
+            TreeItem::Window {
+                session_name: "expanded".to_string(),
+                window_index: 0,
+                window_name: "w".to_string(),
+                agent_state: None,
+                git_info: None,
+                pane_current_path: None,
+                pane_current_command: None,
+                pane_title: None,
+                has_multiple_panes: false,
+                session_toplevel: None,
+            },
+        ];
+
+        // collapsed(0), top_border(1), window(2), bottom_border(3)
+        assert_eq!(visual_row_to_item(&items, 0, 80), Some(0)); // collapsed session
+        assert_eq!(visual_row_to_item(&items, 1, 80), Some(1)); // top border → expanded session
+        assert_eq!(visual_row_to_item(&items, 2, 80), Some(2)); // window
+        assert_eq!(visual_row_to_item(&items, 3, 80), Some(1)); // bottom border → expanded session
+        assert_eq!(visual_row_to_item(&items, 4, 80), None);
+    }
+
+    #[test]
+    fn test_visual_row_to_item_roundtrip() {
+        // For each item, item_to_visual_row and visual_row_to_item should be consistent
+        let sessions = vec![TmuxSession {
+            session_name: "main".to_string(),
+            session_attached: true,
+            repo_name: None,
+            toplevel: None,
+            worktree_name: None,
+            windows: vec![
+                TmuxWindow {
+                    window_index: 0,
+                    window_name: "a".to_string(),
+                    window_active: true,
+                    panes: vec![make_pane("%0", "zsh", None)],
+                },
+                TmuxWindow {
+                    window_index: 1,
+                    window_name: "b".to_string(),
+                    window_active: false,
+                    panes: vec![make_pane("%1", "zsh", None)],
+                },
+            ],
+        }];
+        let items = flatten(&sessions, &HashSet::new());
+
+        for idx in 0..items.len() {
+            let visual = item_to_visual_row(&items, idx, 80);
+            assert_eq!(
+                visual_row_to_item(&items, visual, 80),
+                Some(idx),
+                "roundtrip failed for item {} at visual row {}",
+                idx,
+                visual
+            );
+        }
     }
 }

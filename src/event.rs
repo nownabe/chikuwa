@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use tokio::sync::mpsc;
 
 use crate::agent::state::AgentState;
@@ -11,6 +11,7 @@ use crate::usage::Usage;
 #[derive(Debug)]
 pub enum AppEvent {
     Key(KeyEvent),
+    Mouse(MouseEvent),
     Tick,
     AnimationTick,
     AgentStateUpdate(AgentState),
@@ -25,10 +26,18 @@ pub enum AppEvent {
 pub async fn event_loop(tx: mpsc::Sender<AppEvent>, tick_rate: Duration) -> Result<()> {
     loop {
         if event::poll(tick_rate)? {
-            if let Event::Key(key) = event::read()? {
-                if tx.send(AppEvent::Key(key)).await.is_err() {
-                    return Ok(());
+            match event::read()? {
+                Event::Key(key) => {
+                    if tx.send(AppEvent::Key(key)).await.is_err() {
+                        return Ok(());
+                    }
                 }
+                Event::Mouse(mouse) => {
+                    if tx.send(AppEvent::Mouse(mouse)).await.is_err() {
+                        return Ok(());
+                    }
+                }
+                _ => {}
             }
         } else if tx.send(AppEvent::Tick).await.is_err() {
             return Ok(());
