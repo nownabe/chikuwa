@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, MouseButton, MouseEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -147,6 +147,8 @@ pub struct App {
     nvim_title_cache: HashMap<String, String>,
     /// Last known terminal width for visual row calculations.
     last_width: u16,
+    /// The tree area rect from the last draw, for mouse hit-testing.
+    tree_area: ratatui::layout::Rect,
     /// True when the user has navigated manually (Up/Down/Top/Bottom).
     /// Prevents auto-follow of the active tmux pane until the user selects an item.
     user_navigated: bool,
@@ -170,6 +172,7 @@ impl App {
             anim_frame: 0,
             nvim_title_cache: HashMap::new(),
             last_width: 80,
+            tree_area: ratatui::layout::Rect::default(),
             user_navigated: false,
             usage: None,
             usage_next_fetch: None,
@@ -664,6 +667,7 @@ async fn run_app(
             );
 
             // Adjust scroll for visible area (visual rows, no outer border)
+            app.tree_area = chunks[1];
             let visible_height = chunks[1].height as usize;
             app.last_width = chunks[1].width;
             let selected_visual =
@@ -716,6 +720,45 @@ async fn run_app(
                         Action::Top => app.move_top(),
                         Action::Bottom => app.move_bottom(),
                         Action::None => {}
+                    }
+                }
+                AppEvent::Mouse(mouse) => {
+                    match mouse.kind {
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            let area = app.tree_area;
+                            if mouse.column >= area.x
+                                && mouse.column < area.x + area.width
+                                && mouse.row >= area.y
+                                && mouse.row < area.y + area.height
+                            {
+                                let click_visual_row =
+                                    app.scroll_offset + (mouse.row - area.y) as usize;
+                                if let Some(item_idx) = tree::visual_row_to_item(
+                                    &app.tree_items,
+                                    click_visual_row,
+                                    app.last_width,
+                                ) {
+                                    if let tree::TreeItem::Session { name, .. } =
+                                        &app.tree_items[item_idx]
+                                    {
+                                        // Toggle collapse on session click
+                                        let name = name.clone();
+                                        if app.collapsed.contains(&name) {
+                                            app.collapsed.remove(&name);
+                                        } else {
+                                            app.collapsed.insert(name);
+                                        }
+                                        app.rebuild_tree();
+                                    } else if app.tree_items[item_idx].is_selectable() {
+                                        app.selected = item_idx;
+                                        app.handle_select().await?;
+                                    }
+                                }
+                            }
+                        }
+                        MouseEventKind::ScrollUp => app.move_up(),
+                        MouseEventKind::ScrollDown => app.move_down(),
+                        _ => {}
                     }
                 }
                 AppEvent::Tick => {
