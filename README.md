@@ -27,15 +27,19 @@ A sidebar TUI for monitoring multiple AI agents (Claude Code, etc.) running in t
 - **Instant tmux updates** — Registers tmux hooks for immediate response to pane/window/session changes, with periodic polling as a fallback
 - **Git integration** — Displays current branch, repo name, and open PR info per session
 - **Nvim integration** — Shows the file being edited in nvim panes with relative paths
-- **Keyboard navigation** — Navigate and switch between tmux windows/panes
-- **Status bar** — Summary of all agents (running, waiting, permission)
+- **Claude API usage** — Displays 5-hour and 7-day usage gauges in the status bar
+- **Keyboard & mouse navigation** — Navigate and switch between tmux windows/panes with vim keys or mouse clicks
+- **Status bar** — Summary of all agents (running, waiting, permission) and API usage
 
 ## How It Works
 
-A single binary that operates in two modes:
+A single binary that operates in three modes:
 
-- **`chikuwa`** — TUI mode. Displays tmux sessions/windows/panes as a tree with real-time agent status.
-- **`chikuwa hook`** — Hook mode. Called from Claude Code hooks; reads event JSON from stdin to update agent status via IPC (Unix domain socket).
+| Mode | Command | Description |
+|---|---|---|
+| TUI | `chikuwa` | Displays tmux sessions/windows/panes as a tree with real-time agent status |
+| Hook | `chikuwa hook` | Called from Claude Code hooks; reads event JSON from stdin to update agent status via IPC |
+| Notify | `chikuwa notify` | Called from tmux hooks; signals the TUI to refresh immediately |
 
 ```
 Claude Code ──(hooks)──→ chikuwa hook ──(IPC)──→ chikuwa (TUI)
@@ -48,8 +52,22 @@ The TUI registers tmux hooks (e.g., `after-select-pane`, `session-created`) on s
 
 ## Installation
 
+### From crates.io
+
+```sh
+cargo install chikuwa
+```
+
+### From source
+
 ```sh
 cargo install --path .
+```
+
+### Nix
+
+```sh
+nix profile install github:nownabe/chikuwa
 ```
 
 Requires a [Nerd Font](https://www.nerdfonts.com/) for icons.
@@ -80,6 +98,8 @@ chikuwa
 | `g` | Jump to top |
 | `G` | Jump to bottom |
 | `q` / `Ctrl+C` | Quit |
+
+Mouse clicks on tree items are also supported.
 
 ### Claude Code Hooks Setup
 
@@ -118,6 +138,10 @@ tmux show-hooks -g | grep chikuwa   # check for leftover hooks
 chikuwa notify                       # or just start and quit the TUI to clean up
 ```
 
+### Claude API Usage Display
+
+The status bar shows Claude API usage gauges (5-hour and 7-day utilization). This requires being logged in to Claude Code via OAuth — credentials are read from `~/.claude/.credentials.json`. Usage is polled every 10 minutes.
+
 ## Development
 
 ```sh
@@ -125,6 +149,8 @@ cargo build   # Build
 cargo test    # Run all tests
 cargo run     # Run TUI (requires tmux)
 ```
+
+See [AGENTS.md](AGENTS.md) for detailed architecture and development guide.
 
 ## License
 
