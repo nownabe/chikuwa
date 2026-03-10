@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/nownabe/chikuwa/compare/v0.1.6...v0.1.7) - 2026-03-10
+
+### Added
+
+- add --version flag to CLI ([#39](https://github.com/nownabe/chikuwa/pull/39))
+- add mouse click support for tree view navigation ([#36](https://github.com/nownabe/chikuwa/pull/36))
+- display usage API errors and next-fetch countdown in status bar ([#34](https://github.com/nownabe/chikuwa/pull/34))
+
+### Fixed
+
+- reduce usage API polling frequency and add 429 backoff ([#33](https://github.com/nownabe/chikuwa/pull/33))
+
 ## [0.1.6](https://github.com/nownabe/chikuwa/compare/v0.1.5...v0.1.6) - 2026-03-10
 
 ### Added
