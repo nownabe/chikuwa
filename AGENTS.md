@@ -39,6 +39,14 @@ Two modes in a single binary:
 
 State files are JSON at `$XDG_RUNTIME_DIR/chikuwa/<TMUX_PANE>.json` (fallback: `/tmp/chikuwa/`).
 
+## Pre-commit Checklist
+
+Before committing, always run:
+
+1. `cargo fmt` — format code
+2. `cargo clippy` — check for lint warnings
+3. `cargo test` — run all tests
+
 ## Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/). Common types:
