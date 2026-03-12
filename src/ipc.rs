@@ -18,7 +18,7 @@ pub fn socket_path() -> PathBuf {
 }
 
 /// Client side: connect to the socket, send a JSON line, and disconnect.
-/// Fails silently if the TUI is not running.
+/// Fails silently if the TUI is not running or the connection is broken.
 pub async fn send_state(state: &AgentState) -> Result<()> {
     let path = socket_path();
 
@@ -30,11 +30,10 @@ pub async fn send_state(state: &AgentState) -> Result<()> {
     let mut json = serde_json::to_string(state).context("Failed to serialize agent state")?;
     json.push('\n');
 
-    stream
-        .write_all(json.as_bytes())
-        .await
-        .context("Failed to write to socket")?;
-    stream.shutdown().await.ok();
+    // Ignore write errors (e.g. TUI exited after connect)
+    if stream.write_all(json.as_bytes()).await.is_ok() {
+        stream.shutdown().await.ok();
+    }
 
     Ok(())
 }
@@ -78,7 +77,7 @@ pub async fn start_listener(tx: mpsc::Sender<AppEvent>) -> Result<()> {
 }
 
 /// Client side: connect to the socket, send a "notify" line, and disconnect.
-/// Fails silently if the TUI is not running.
+/// Fails silently if the TUI is not running or the connection is broken.
 pub async fn send_notify() -> Result<()> {
     let path = socket_path();
 
@@ -87,11 +86,10 @@ pub async fn send_notify() -> Result<()> {
         Err(_) => return Ok(()), // TUI not running, fail silently
     };
 
-    stream
-        .write_all(b"notify\n")
-        .await
-        .context("Failed to write to socket")?;
-    stream.shutdown().await.ok();
+    // Ignore write errors (e.g. TUI exited after connect)
+    if stream.write_all(b"notify\n").await.is_ok() {
+        stream.shutdown().await.ok();
+    }
 
     Ok(())
 }
