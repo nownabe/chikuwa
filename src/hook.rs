@@ -48,9 +48,12 @@ fn extract_tool_detail(tool_name: &str, input: &serde_json::Value) -> Option<Str
 }
 
 /// Run the hook subcommand: read stdin JSON, determine event from hook_event_name, send state via IPC.
+/// Outside tmux there is no pane to report, so this is a no-op rather than an error:
+/// hooks run on every Claude Code event and any error output would be shown to the user.
 pub async fn run() -> Result<()> {
-    let pane_id = std::env::var("TMUX_PANE")
-        .context("TMUX_PANE environment variable not set (not running inside tmux?)")?;
+    let Ok(pane_id) = std::env::var("TMUX_PANE") else {
+        return Ok(());
+    };
 
     let mut stdin_buf = String::new();
     std::io::stdin()
