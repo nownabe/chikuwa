@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9](https://github.com/nownabe/chikuwa/compare/v0.1.8...v0.1.9) - 2026-07-14
+
+### Fixed
+
+- exit silently when hook runs outside tmux ([#45](https://github.com/nownabe/chikuwa/pull/45))
+
 ## [0.1.8](https://github.com/nownabe/chikuwa/compare/v0.1.7...v0.1.8) - 2026-03-10
 
 ## [0.1.7](https://github.com/nownabe/chikuwa/compare/v0.1.6...v0.1.7) - 2026-03-10
