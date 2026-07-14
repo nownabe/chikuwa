@@ -26,18 +26,13 @@ pub enum AppEvent {
 pub async fn event_loop(tx: mpsc::Sender<AppEvent>, tick_rate: Duration) -> Result<()> {
     loop {
         if event::poll(tick_rate)? {
-            match event::read()? {
-                Event::Key(key) => {
-                    if tx.send(AppEvent::Key(key)).await.is_err() {
-                        return Ok(());
-                    }
-                }
-                Event::Mouse(mouse) => {
-                    if tx.send(AppEvent::Mouse(mouse)).await.is_err() {
-                        return Ok(());
-                    }
-                }
-                _ => {}
+            let app_event = match event::read()? {
+                Event::Key(key) => AppEvent::Key(key),
+                Event::Mouse(mouse) => AppEvent::Mouse(mouse),
+                _ => continue,
+            };
+            if tx.send(app_event).await.is_err() {
+                return Ok(());
             }
         } else if tx.send(AppEvent::Tick).await.is_err() {
             return Ok(());
