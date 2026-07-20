@@ -41,11 +41,11 @@ src/
 
 Single binary, three subcommands:
 
-| Subcommand | Purpose |
-|---|---|
-| (none) | TUI mode — renders tree view, polls tmux, listens on IPC |
-| `hook` | Hook mode — called by Claude Code hooks, sends AgentState via IPC |
-| `notify` | Notify mode — called by tmux hooks, sends refresh signal via IPC |
+| Subcommand | Purpose                                                           |
+| ---------- | ----------------------------------------------------------------- |
+| (none)     | TUI mode — renders tree view, polls tmux, listens on IPC          |
+| `hook`     | Hook mode — called by Claude Code hooks, sends AgentState via IPC |
+| `notify`   | Notify mode — called by tmux hooks, sends refresh signal via IPC  |
 
 ### Data Flow
 
@@ -62,6 +62,7 @@ Anthropic API ──(usage, polling ~600s)─────←── chikuwa TUI
 Unix domain socket at `$XDG_RUNTIME_DIR/chikuwa.sock` (fallback: `/tmp/chikuwa.sock`).
 
 Two message types:
+
 - AgentState JSON (one line) → `AppEvent::AgentStateUpdate`
 - `"notify"` string → `AppEvent::TmuxChanged`
 
@@ -77,6 +78,7 @@ The TUI spawns four concurrent tasks:
 ### Agent State Merging
 
 When an `AgentStateUpdate` arrives:
+
 - `SessionEnd` → remove agent from state map
 - Otherwise → merge with existing state:
   - Preserve `session_id` if incoming is `None`
@@ -86,27 +88,27 @@ When an `AgentStateUpdate` arrives:
 
 ### Hook Event Mapping
 
-| Claude Code Event | AgentStatus |
-|---|---|
-| `SessionStart` | `Started` |
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop` | `Running` |
-| `Stop` | `Waiting` |
-| `PermissionRequest` | `Permission` |
-| `Notification` (containing "permission_prompt") | `Permission` |
-| `SessionEnd` | `Ended` |
+| Claude Code Event                                                                                      | AgentStatus  |
+| ------------------------------------------------------------------------------------------------------ | ------------ |
+| `SessionStart`                                                                                         | `Started`    |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop` | `Running`    |
+| `Stop`                                                                                                 | `Waiting`    |
+| `PermissionRequest`                                                                                    | `Permission` |
+| `Notification` (containing "permission_prompt")                                                        | `Permission` |
+| `SessionEnd`                                                                                           | `Ended`      |
 
 ### Tool Detail Extraction (`hook.rs`)
 
-| Tool | Detail Source |
-|---|---|
-| `Bash` | `tool_input.command` |
-| `Read` | `tool_input.file_path` (+ `:offset` if present) |
-| `Write`, `Edit` | `tool_input.file_path` |
-| `NotebookEdit` | `tool_input.notebook_path` |
-| `Grep`, `Glob` | `tool_input.pattern` |
-| `WebFetch` | `tool_input.url` |
-| `WebSearch` | `tool_input.query` |
-| `Task` | `tool_input.description` |
+| Tool            | Detail Source                                   |
+| --------------- | ----------------------------------------------- |
+| `Bash`          | `tool_input.command`                            |
+| `Read`          | `tool_input.file_path` (+ `:offset` if present) |
+| `Write`, `Edit` | `tool_input.file_path`                          |
+| `NotebookEdit`  | `tool_input.notebook_path`                      |
+| `Grep`, `Glob`  | `tool_input.pattern`                            |
+| `WebFetch`      | `tool_input.url`                                |
+| `WebSearch`     | `tool_input.query`                              |
+| `Task`          | `tool_input.description`                        |
 
 ## Key Types
 
