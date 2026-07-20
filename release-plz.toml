@@ -4,13 +4,13 @@ git_release_draft = true
 
 [changelog]
 commit_parsers = [
-    { message = "^feat", group = "Added" },
-    { message = "^fix", group = "Fixed" },
-    { message = "^perf", group = "Performance" },
-    { message = "^refactor", skip = true },
-    { message = "^doc", skip = true },
-    { message = "^style", skip = true },
-    { message = "^test", skip = true },
-    { message = "^chore", skip = true },
-    { message = "^ci", skip = true },
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", skip = true },
+  { message = "^doc", skip = true },
+  { message = "^style", skip = true },
+  { message = "^test", skip = true },
+  { message = "^chore", skip = true },
+  { message = "^ci", skip = true },
 ]

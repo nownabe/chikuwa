@@ -35,11 +35,11 @@ A sidebar TUI for monitoring multiple AI agents (Claude Code, etc.) running in t
 
 A single binary that operates in three modes:
 
-| Mode | Command | Description |
-|---|---|---|
-| TUI | `chikuwa` | Displays tmux sessions/windows/panes as a tree with real-time agent status |
-| Hook | `chikuwa hook` | Called from Claude Code hooks; reads event JSON from stdin to update agent status via IPC |
-| Notify | `chikuwa notify` | Called from tmux hooks; signals the TUI to refresh immediately |
+| Mode   | Command          | Description                                                                               |
+| ------ | ---------------- | ----------------------------------------------------------------------------------------- |
+| TUI    | `chikuwa`        | Displays tmux sessions/windows/panes as a tree with real-time agent status                |
+| Hook   | `chikuwa hook`   | Called from Claude Code hooks; reads event JSON from stdin to update agent status via IPC |
+| Notify | `chikuwa notify` | Called from tmux hooks; signals the TUI to refresh immediately                            |
 
 ```
 Claude Code ──(hooks)──→ chikuwa hook ──(IPC)──→ chikuwa (TUI)
@@ -91,20 +91,20 @@ chikuwa
 
 #### Options
 
-| Flag | Description |
-|---|---|
+| Flag             | Description                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------- |
 | `--store-events` | Log all received hook events to `$XDG_RUNTIME_DIR/chikuwa/events.jsonl` for debugging |
 
 ### Key Bindings
 
-| Key | Action |
-|---|---|
-| `j` / `↓` | Move down |
-| `k` / `↑` | Move up |
+| Key               | Action                                |
+| ----------------- | ------------------------------------- |
+| `j` / `↓`         | Move down                             |
+| `k` / `↑`         | Move up                               |
 | `Enter` / `Space` | Toggle session collapse / switch tmux |
-| `g` | Jump to top |
-| `G` | Jump to bottom |
-| `q` / `Ctrl+C` | Quit |
+| `g`               | Jump to top                           |
+| `G`               | Jump to bottom                        |
+| `q` / `Ctrl+C`    | Quit                                  |
 
 Mouse clicks on tree items are also supported.
 
@@ -115,17 +115,17 @@ Add the following to `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "PreToolUse": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "PostToolUse": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "PermissionRequest": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "Notification": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "SubagentStart": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "SubagentStop": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}],
-    "SessionEnd": [{"hooks": [{"type": "command", "command": "chikuwa hook"}]}]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "chikuwa hook" }] }]
   }
 }
 ```
