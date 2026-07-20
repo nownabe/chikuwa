@@ -42,7 +42,8 @@ jobs:
     permissions:
       contents: read
 
-  status:
+  result:
+    name: Pull Request Checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
